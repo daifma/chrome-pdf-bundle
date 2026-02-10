@@ -1,0 +1,129 @@
+<?php
+
+namespace Daif\ChromePdfBundle\DependencyInjection;
+
+use Daif\ChromePdfBundle\Builder\Attributes\WithBuilderConfiguration;
+use Daif\ChromePdfBundle\Builder\Attributes\WithConfigurationNode;
+use Daif\ChromePdfBundle\Builder\BuilderInterface;
+use Daif\ChromePdfBundle\Enumeration\Unit;
+use Daif\ChromePdfBundle\NodeBuilder\ArrayNodeBuilder;
+use Daif\ChromePdfBundle\NodeBuilder\NativeEnumNodeBuilder;
+use Daif\ChromePdfBundle\NodeBuilder\NodeBuilderInterface;
+use Daif\ChromePdfBundle\NodeBuilder\UnitNodeBuilder;
+
+/**
+ * @internal
+ */
+final class BuilderStack
+{
+    /**
+     * @var array<class-string<BuilderInterface>, string>
+     */
+    private array $builders = [];
+
+    /**
+     * @var array<string, array<string, class-string<BuilderInterface>>>
+     */
+    private array $typeReverseMapping = [];
+
+    /**
+     * @var array<class-string<BuilderInterface>, array<string, array{'method': string, 'mustUseVariadic': bool, 'callback': array<array-key, string>|null}>>
+     */
+    private array $configMapping = [];
+
+    /**
+     * @var array<string, array<string, array<array-key, NodeBuilderInterface>>>
+     */
+    private array $configNode = [];
+
+    /**
+     * @param class-string<BuilderInterface> $class
+     */
+    public function push(string $class): void
+    {
+        if (!is_a($class, BuilderInterface::class, true)) {
+            throw new \LogicException(\sprintf('Only classes implementing %s are supported.', BuilderInterface::class));
+        }
+
+        if (\array_key_exists($class, $this->builders)) {
+            return;
+        }
+
+        $reflection = new \ReflectionClass($class);
+        $nodeAttributes = $reflection->getAttributes(WithBuilderConfiguration::class);
+
+        if (\count($nodeAttributes) === 0) {
+            throw new \LogicException(\sprintf('%s is missing the %s attribute', $class, WithBuilderConfiguration::class));
+        }
+
+        /** @var WithBuilderConfiguration $builderConfiguration */
+        $builderConfiguration = $nodeAttributes[0]->newInstance();
+
+        $this->builders[$class] = $builderConfiguration->type;
+
+        $this->typeReverseMapping[$builderConfiguration->type][$builderConfiguration->name] = $class;
+
+        foreach (array_reverse($reflection->getMethods(\ReflectionMethod::IS_PUBLIC)) as $method) {
+            $attributes = $method->getAttributes(WithConfigurationNode::class);
+            if (\count($attributes) === 0) {
+                continue;
+            }
+
+            /** @var WithConfigurationNode $attribute */
+            $attribute = $attributes[0]->newInstance();
+
+            $mustUseVariadic = false;
+            $callback = null;
+
+            if ($attribute->node instanceof ArrayNodeBuilder) {
+                $mustUseVariadic = null === $attribute->node->prototype;
+            } elseif ($attribute->node instanceof NativeEnumNodeBuilder) {
+                $callback = [$attribute->node->enumClass, 'from'];
+            } elseif ($attribute->node instanceof UnitNodeBuilder) {
+                $callback = [Unit::class, 'parse'];
+                $mustUseVariadic = true;
+            }
+
+            $this->configMapping[$class] ??= [];
+            $this->configMapping[$class][$attribute->node->getName()] = [
+                'method' => $method->getName(),
+                'mustUseVariadic' => $mustUseVariadic,
+                'callback' => $callback,
+            ];
+
+            $this->configNode[$builderConfiguration->type][$builderConfiguration->name][] = $attribute->node;
+        }
+    }
+
+    /**
+     * @return array<class-string<BuilderInterface>, string>
+     */
+    public function getBuilders(): array
+    {
+        return $this->builders;
+    }
+
+    /**
+     * @return array<string, array<string, class-string<BuilderInterface>>>
+     */
+    public function getTypeReverseMapping(): array
+    {
+        return $this->typeReverseMapping;
+    }
+
+    /**
+     * @return array<class-string<BuilderInterface>, array<string, array{'method': string, 'mustUseVariadic': bool, 'callback': array<array-key, string>|null}>>
+     */
+    public function getConfigMapping(): array
+    {
+        return $this->configMapping;
+    }
+
+    /**
+     * @return array<string, array<string, array<array-key, NodeBuilderInterface>>>
+     */
+    public function getConfigNode(): array
+    {
+        return $this->configNode;
+    }
+}

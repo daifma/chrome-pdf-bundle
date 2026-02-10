@@ -1,0 +1,59 @@
+name: Bug Report
+description: File a bug report
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+
+  - type: textarea
+    id: reproducer
+    attributes:
+      label: Reproducer
+      description: Provide a minimal reproducible example, if possible.
+      placeholder: ex. A small script or controller action
+    validations:
+      required: false
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Provide a detailed description of the bug, including any relevant context or error messages.
+      placeholder: Describe the issue in detail...
+    validations:
+      required: true
+
+  - type: input
+    id: chrome_version
+    attributes:
+      label: Chrome/Chromium Version
+      description: Specify the version of Chrome or Chromium you are using (run `google-chrome --version` or `chromium --version`).
+      placeholder: ex. 120.0.6099.109
+    validations:
+      required: true
+
+  - type: input
+    id: bundle_version
+    attributes:
+      label: ChromePdfBundle Version
+      description: Specify the version of the ChromePdfBundle you are using.
+      placeholder: ex. 0.9.0-alpha
+    validations:
+      required: false
+
+  - type: input
+    id: php_version
+    attributes:
+      label: PHP Version
+      description: Specify your PHP version.
+      placeholder: ex. 8.2.15
+    validations:
+      required: false
+
+  - type: input
+    id: symfony_version
+    attributes:
+      label: Symfony Version
+      description: Specify your Symfony version.
+      placeholder: ex. 6.4.3
+    validations:
+      required: false

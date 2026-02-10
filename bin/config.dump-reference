@@ -1,0 +1,23 @@
+#!/usr/bin/env php
+<?php
+
+use Daif\ChromePdfBundle\DaifChromePdfBundle;
+use Daif\ChromePdfBundle\DependencyInjection\DaifChromePdfExtension;
+use Symfony\Component\Config\Definition\Dumper\YamlReferenceDumper;
+use Symfony\Component\DependencyInjection\ContainerBuilder;
+
+require dirname(__DIR__).'/vendor/autoload.php';
+
+$yamlDumper = new YamlReferenceDumper();
+
+$containerBuilder = new ContainerBuilder();
+$bundle = new DaifChromePdfBundle();
+
+$containerBuilder->registerExtension($bundle->getContainerExtension());
+
+$bundle->build($containerBuilder);
+
+/** @var DaifChromePdfExtension $extension */
+$extension = $containerBuilder->getExtension('daif_chrome_pdf');
+
+echo $yamlDumper->dump($extension->getConfiguration([], $containerBuilder));

@@ -1,0 +1,80 @@
+{
+    "name": "daif/chrome-pdf-bundle",
+    "description": "A Symfony bundle for generating PDFs and screenshots using a local Chrome/Chromium binary via Chrome DevTools Protocol, with a clean, builder-based API.",
+    "keywords": ["chrome", "chromium", "pdf", "screenshot", "symfony", "bundle"],
+    "type": "symfony-bundle",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Daif\\ChromePdfBundle\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Daif\\ChromePdfBundle\\Tests\\": "tests/"
+        }
+    },
+    "authors": [
+        {
+            "name": "DAIF Abderrahman",
+            "email": "daif.abderrahman@gmail.com"
+        }
+    ],
+    "require": {
+        "php": ">=8.1",
+        "ext-filter": "*",
+        "ext-json": "*",
+        "chrome-php/chrome": "^1.15",
+        "league/commonmark": "^2.8",
+        "psr/container": "^2.0",
+        "psr/log": "^3.0",
+        "symfony/config": "^6.4 || ^7.0 || ^8.0",
+        "symfony/dependency-injection": "^6.4 || ^7.0 || ^8.0",
+        "symfony/filesystem": "^6.4 || ^7.0 || ^8.0",
+
+        "symfony/http-foundation": "^6.4 || ^7.0 || ^8.0",
+        "symfony/http-kernel": "^6.4 || ^7.0 || ^8.0",
+        "symfony/service-contracts": "^3.6"
+    },
+    "require-dev": {
+        "ext-mbstring": "*",
+        "async-aws/s3": "^2.6",
+        "friendsofphp/php-cs-fixer": "^3.93",
+        "league/flysystem": "^3.29",
+        "phpstan/extension-installer": "^1.3",
+        "phpstan/phpstan": "^2.1",
+        "phpstan/phpstan-phpunit": "^2.0",
+        "phpstan/phpstan-symfony": "^2.0",
+        "phpunit/phpunit": "^10.5.46",
+        "shipmonk/composer-dependency-analyser": "^1.8",
+        "symfony/asset": "^6.4 || ^7.0 || ^8.0",
+        "symfony/asset-mapper": "^6.4 || ^7.0 || ^8.0",
+        "symfony/console": "^6.4 || ^7.0 || ^8.0",
+        "symfony/css-selector": "^6.4 || ^7.0 || ^8.0",
+        "symfony/dom-crawler": "^6.4 || ^7.0 || ^8.0",
+        "symfony/error-handler": "^6.4 || ^7.0 || ^8.0",
+        "symfony/framework-bundle": "^6.4 || ^7.0 || ^8.0",
+        "symfony/http-client": "^6.4 || ^7.0 || ^8.0",
+        "symfony/monolog-bundle": "^3.10 || ^4.0",
+        "symfony/routing": "^6.4 || ^7.0 || ^8.0",
+        "symfony/stopwatch": "^6.4 || ^7.0 || ^8.0",
+        "symfony/twig-bundle": "^6.4 || ^7.0 || ^8.0",
+        "symfony/var-dumper": "^6.4 || ^7.0 || ^8.0",
+        "symfony/yaml": "^6.4 || ^7.0 || ^8.0",
+        "twig/twig": "^3.14"
+    },
+    "config": {
+        "allow-plugins": {
+            "phpstan/extension-installer": true
+        },
+        "sort-packages": true
+    },
+    "suggest": {
+        "symfony/monolog-bundle": "Enables logging througout the generating process.",
+        "symfony/routing": "Allows you to use route() method to generate PDFs from Symfony routes.",
+        "symfony/twig-bundle": "Allows you to use Twig to render templates into PDF.",
+        "monolog/monolog": "Enables logging througout the generating process.",
+        "async-aws/s3": "Upload any file to aws s3 compatible endpoints supporting multi part upload without memory overhead.",
+        "league/flysystem-bundle": "Upload any file using this filesystem abstraction package."
+    }
+}

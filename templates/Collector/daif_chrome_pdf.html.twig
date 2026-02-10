@@ -1,0 +1,187 @@
+{% extends '@WebProfiler/Profiler/layout.html.twig' %}
+
+{% block head %}
+    {{ parent() }}
+    <style>
+        .icon {
+            font-size: 18px;
+        }
+        .file-details {
+            display: none;
+        }
+        .file-details:has(.sf-toggle-visible) {
+            display: table-row;
+        }
+        .file-info .unit {
+            color: var(--metric-unit-color);
+            margin-left: -2px;
+            font-size: calc(var(--font-size-body) - 2px);
+        }
+    </style>
+{% endblock %}
+
+{% block toolbar %}
+    {% if collector.requestCount %}
+        {% set icon %}
+            <span class="icon">{{ source('@DaifChromePdf/Icon/chrome_pdf_logo.png.html') }}</span>
+            {% set status_color = '' %}
+            <span class="sf-toolbar-value" style="margin-left: 4px"> {{ collector.files|length }} </span>
+            <span class="sf-toolbar-label"> files </span>
+        {% endset %}
+
+        {% set text %}
+            <div class="sf-toolbar-info-piece">
+                <strong>Files Generated</strong>
+                <span>{{ collector.files|length }}</span>
+            </div>
+        {% endset %}
+
+        {{ include('@WebProfiler/Profiler/toolbar_item.html.twig', { link: profiler_url, status: status_color }) }}
+    {% endif %}
+{% endblock %}
+
+{% block menu %}
+    <span class="label {{ collector.files|length == 0 ? 'disabled' }}">
+        <span class="icon">{{ source('@DaifChromePdf/Icon/chrome_pdf_logo.png.html') }}</span>
+        <strong>Chrome PDF</strong>
+        {% if collector.files|length > 0 %}
+            <span class="count">{{ collector.files|length }}</span>
+        {% endif %}
+    </span>
+{% endblock %}
+
+{% block panel %}
+    <h2>Chrome PDF</h2>
+    <section class="metrics">
+        <div class="metric-group">
+            <div class="metric">
+                <span class="value">{{ collector.requestCount }}</span>
+                <span class="label">Files generated</span>
+            </div>
+            <div class="metric">
+                {% if collector.requestTotalTime is null %}
+                    <span class="value" title="To enable elapsed time tracking, the Stopwatch component is required. Try running 'composer require symfony/stopwatch'.">n/a</span>
+                {% else %}
+                    <span class="value">{{ '%.0f'|format(collector.requestTotalTime) }} <span class="unit">ms</span></span>
+                {% endif %}
+                <span class="label">Total time</span>
+            </div>
+            <div class="metric">
+                {% set total_size = collector.requestTotalSize %}
+                {% set total_size_value = total_size[0] %}
+                {% set total_size_unit = total_size[1] %}
+
+                <span class="value">{{ '%.1f'|format(total_size_value) }} <span
+                            class="unit">{{ total_size_unit }}</span></span>
+                <span class="label">Total size</span>
+            </div>
+        </div>
+    </section>
+    <h2>Files</h2>
+    {% for index, file in collector.files %}
+    <table>
+        <thead>
+        <tr>
+            <th>Type</th>
+            <th>File</th>
+            <th>Time</th>
+            <th>Memory</th>
+            <th>Size</th>
+            <th>Builder</th>
+        </tr>
+        </thead>
+        <tbody>
+            <tr class="file-info">
+                <td class="font-normal">
+                    <span class="icon">
+                        {% if file.type == 'pdf' %}
+                            {{ source('@DaifChromePdf/Icon/file-type-pdf.svg') }}
+                        {% elseif file.type == 'screenshot' %}
+                            {{ source('@DaifChromePdf/Icon/file-type-screenshot.svg') }}
+                        {% endif %}
+                    </span>
+                    <span class="icon">
+                        {{ source('@DaifChromePdf/Icon/file-' ~ file.request_type ~ '.svg') }}
+                    </span>
+                </td>
+                <td class="font-normal">
+                    {{ file.fileName }}
+                    <div>
+                        <a href="#" class="sf-toggle link-inverse" data-toggle-selector="#configuration-{{ index }}"
+                           data-toggle-alt-content="Hide configuration">View configuration</a>
+                        <a href="#" class="sf-toggle link-inverse" data-toggle-selector="#method-calls-{{ index }}"
+                           data-toggle-alt-content="Hide method calls">View method calls</a>
+                    </div>
+                </td>
+                <td class="font-normal">
+                    {% if file.time is null %}
+                        <span class="value" title="To enable elapsed time tracking, the Stopwatch component is required. Try running 'composer require symfony/stopwatch'.">n/a</span>
+                    {% else %}
+                        <span class="value">{{ '%.0f'|format(file.time) }} <span class="unit">ms</span></span>
+                    {% endif %}
+                </td>
+                <td class="font-normal">
+                    {% if file.memory is null %}
+                        <span class="value" title="To enable memory usage tracking, the Stopwatch component is required. Try running 'composer require symfony/stopwatch'.">n/a</span>
+                    {% else %}
+                        <span class="value">{{ '%.1f'|format(file.memory / 1024 / 1024) }} <span class="unit">MiB</span></span>
+                    {% endif %}
+                </td>
+                <td class="font-normal">
+                    {% set size = file.size %}
+                    {% set size_value = size[0] %}
+                    {% set size_unit = size[1] %}
+
+                    <span class="value">
+                        {{ '%.1f'|format(size_value) }}
+                        <span class="unit">{{ size_unit }}</span>
+                    </span>
+                </td>
+                <td class="font-normal">
+                    <span class="value">{{ file.builderClass|abbr_class }}</span>
+                </td>
+            </tr>
+            <tr class="file-details">
+                <td colspan="6">
+                    <div id="configuration-{{ index }}" class="sf-toggle-hidden">
+                        <table>
+                            <thead>
+                            <tr>
+                                <th>Configuration</th>
+                                <th>Value</th>
+                            </tr>
+                            </thead>
+                            <tbody>
+                            {% for configuration, value in file.configuration %}
+                                <tr>
+                                    <td>{{ configuration }}</td>
+                                    <td>{{ profiler_dump(value, maxDepth=5) }}</td>
+                                </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div id="method-calls-{{ index }}" class="sf-toggle-hidden">
+                        <table>
+                            <thead>
+                            <tr>
+                                <th>Method</th>
+                                <th>Arguments</th>
+                            </tr>
+                            </thead>
+                            <tbody>
+                            {% for call in file.calls %}
+                                <tr>
+                                    <td>{{ call.method }}</td>
+                                    <td>{{ profiler_dump(call.stub.value, maxDepth=2) }}</td>
+                                </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </td>
+            </tr>
+        <tbody>
+    </table>
+    {% endfor %}
+{% endblock %}

@@ -1,0 +1,17 @@
+/.phpunit.cache/
+/coverage/
+/tests/fixtures/cache/
+/tests/fixtures/var/
+/var/
+/vendor/
+.php-cs-fixer.cache
+.phpunit.result.cache
+composer.lock
+phpstan.neon
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+CLAUDE.md

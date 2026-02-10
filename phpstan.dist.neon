@@ -1,0 +1,53 @@
+parameters:
+	phpVersion: 80100
+	level: 8
+	paths:
+		- 'config'
+		- 'src'
+		- 'tests'
+	ignoreErrors:
+		-
+			message: '#^Call to function is_a\(\) with arguments class\-string\<Daif\\ChromePdfBundle\\Builder\\BuilderInterface\>, ''Daif\\\\ChromePdfBundle\\\\Builder\\\\BuilderInterface'' and true will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: src/DependencyInjection/BuilderStack.php
+
+		-
+			message: "#^Cannot use array destructuring on list\\<string\\|null\\>\\|null\\.$#"
+			count: 1
+			path: src/DataCollector/ChromePdfDataCollector.php
+
+		-
+			message: "#^Method Daif\\\\ChromePdfBundle\\\\Tests\\\\Kernel\\:\\:configureContainer\\(\\) is unused\\.$#"
+			count: 1
+			path: tests/Kernel.php
+
+		-
+			message: "#^ Call to an undefined method Symfony\\\\Component\\\\Config\\\\Definition\\\\Builder\\\\ArrayNodeDefinition|Symfony\\\\Component\\\\Config\\\\Definition\\\\Builder\\\\VariableNodeDefinition::append\\(\\)\\.$#"
+			count: 1
+			path: src/NodeBuilder/ArrayNodeBuilder.php
+
+		-
+			message: '#^Call to function array_key_exists\(\) with ''url'' and array\{url\: string, extraHttpHeaders\?\: array\<string, string\>\} will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: src/Builder/Util/ValidatorFactory.php
+
+		-
+			message: '#^Instanceof between SplFileInfo and SplFileInfo will always evaluate to true\.$#'
+			identifier: instanceof.alwaysTrue
+			count: 1
+			path: src/Builder/Util/ValidatorFactory.php
+
+		-
+			identifier: missingType.generics
+			paths:
+				- src/NodeBuilder/
+
+		-
+			identifier: assert.alreadyNarrowedType
+			path: src/Builder/Result/ChromePdfFileResult.php
+
+		-
+			identifier: assign.propertyType
+			path: src/Builder/Result/ChromePdfFileResult.php
