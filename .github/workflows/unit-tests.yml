@@ -16,6 +16,7 @@ jobs:
   linux:
     name: 'Linux / PHP ${{ matrix.php }} / Symfony ${{ matrix.symfony }} (${{ matrix.dependencies }})'
     runs-on: 'ubuntu-latest'
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -32,8 +33,9 @@ jobs:
             symfony: '8.*'
             dependencies: 'highest'
     env:
-      # Browser tests must run (and fail without a browser) instead of being skipped.
+      # Browser and engine (qpdf, exiftool, LibreOffice) tests must run (and fail without the binaries) instead of being skipped.
       CHROME_PDF_BROWSER_TESTS: '1'
+      CHROME_PDF_ENGINE_TESTS: '1'
     steps:
       - uses: 'actions/checkout@v4'
 
@@ -52,6 +54,14 @@ jobs:
           chrome-version: 'stable'
           install-dependencies: true
 
+      - name: 'Install qpdf, exiftool and LibreOffice'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends qpdf libimage-exiftool-perl libreoffice-writer-nogui libreoffice-draw-nogui libreoffice-calc-nogui
+          qpdf --version
+          exiftool -ver
+          soffice --version
+
       - name: 'Install dependencies'
         uses: 'ramsey/composer-install@v3'
         env:
@@ -69,6 +79,7 @@ jobs:
   windows:
     name: 'Windows / PHP ${{ matrix.php }} / Symfony ${{ matrix.symfony }}'
     runs-on: 'windows-latest'
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -79,6 +90,7 @@ jobs:
             symfony: '7.*'
     env:
       CHROME_PDF_BROWSER_TESTS: '1'
+      CHROME_PDF_ENGINE_TESTS: '1'
     steps:
       # Defensive: .gitattributes already forces LF, this also covers files without attributes.
       - name: 'Disable CRLF conversion'
@@ -99,6 +111,42 @@ jobs:
         uses: 'browser-actions/setup-chrome@v1'
         with:
           chrome-version: 'stable'
+
+      # The Chocolatey community feed regularly answers 5xx: retry each package.
+      - name: 'Install qpdf, exiftool and LibreOffice'
+        shell: 'pwsh'
+        run: |
+          foreach ($package in 'qpdf', 'exiftool', 'libreoffice-fresh') {
+            for ($attempt = 1; $attempt -le 4; $attempt++) {
+              choco install $package -y --no-progress
+              if ($LASTEXITCODE -eq 0) { break }
+              if ($attempt -eq 4) { throw "choco install $package failed" }
+              Start-Sleep -Seconds (15 * $attempt)
+            }
+          }
+
+      # Chocolatey updates the machine PATH, which later steps do not see: point to the binaries only when PATH lookup fails.
+      - name: 'Locate qpdf, exiftool and LibreOffice'
+        shell: 'pwsh'
+        run: |
+          $tools = @{
+            'QPDF_PATH' = @('qpdf', "$env:ProgramFiles\qpdf*\bin\qpdf.exe");
+            'EXIFTOOL_PATH' = @('exiftool', "$env:ProgramData\chocolatey\bin\exiftool.exe");
+            'LIBREOFFICE_PATH' = @('soffice', "$env:ProgramFiles\LibreOffice\program\soffice.exe")
+          }
+          foreach ($name in $tools.Keys) {
+            $command, $pattern = $tools[$name]
+            if (Get-Command $command -ErrorAction SilentlyContinue) {
+              Write-Output "$command found in PATH"
+              continue
+            }
+            $binary = Get-ChildItem -Path $pattern -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($null -eq $binary) {
+              throw "$command was not found"
+            }
+            Write-Output "$name=$($binary.FullName)"
+            "$name=$($binary.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          }
 
       - name: 'Install dependencies'
         uses: 'ramsey/composer-install@v3'

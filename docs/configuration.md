@@ -34,8 +34,17 @@ daif_chrome_pdf:
     ignore_certificate_errors: false
 
     # Directory where each conversion creates its private working directory
-    # (index.html, header/footer, assets). null = sys_get_temp_dir().
+    # (index.html, header/footer, assets, engine files). null = sys_get_temp_dir().
     temp_dir: null
+
+    # PDF engines, see engines.md. null = auto-detection
+    # (QPDF_PATH / EXIFTOOL_PATH / LIBREOFFICE_PATH env vars, PATH, then well-known locations).
+    qpdf_binary: null
+    exiftool_binary: null
+    libreoffice_binary: null
+
+    # Timeout of each qpdf / exiftool / soffice call, in milliseconds (minimum 1000).
+    engine_timeout: 120000
 
     # PCRE patterns (WITH delimiters) for http(s) URLs Chrome is allowed to load.
     # Empty = every http(s) URL is allowed (unless denied below).
@@ -43,6 +52,8 @@ daif_chrome_pdf:
 
     # PCRE patterns (WITH delimiters) for URLs Chrome must never load. Checked after allow_list.
     deny_list: []
+    # Directories HTML conversions may read through file:// URLs, in addition to the conversion temporary directory
+    local_file_roots: []
 
     # Raw options passed to chrome-php BrowserFactory::createBrowser(), merged last
     # (they override the options computed from the keys above; customFlags are appended).
@@ -56,12 +67,48 @@ daif_chrome_pdf:
     # Stream ChromePdfFileResult objects returned by controllers (kernel.view listener).
     controller_listener: true
 
+    # Optional async generation (generateAsync()), disabled by default. Needs symfony/messenger and
+    # symfony/http-client. See async.md.
+    async:
+        enabled: false
+        bus: 'messenger.default_bus'   # service id of the Messenger bus
+
+    # Named webhook configurations for generateAsync(), see async.md.
+    webhook:
+        # Prototype
+        name:
+            success:
+                url: ~          # a URL...
+                route: ~        # ...or a route: 'name' or [name, { param: value }]
+                method: null    # POST (default), PUT or PATCH
+            error:
+                url: ~
+                route: ~
+                method: null
+            events:             # optional, JSON events, always POST
+                url: ~
+                route: ~
+            extra_http_headers:
+                # - { name: X-Custom-Header, value: custom-header-value }
+
     # Default options for each builder (see below).
     default_options:
+        # Webhook configuration name used by every builder.
+        webhook: ~
         pdf:
             html: { }
             url: { }
             markdown: { }
+            office: { }
+            merge: { }
+            split: { }
+            convert: { }
+            flatten: { }
+            encrypt: { }
+            embed: { }
+            rotate: { }
+            watermark: { }
+            stamp: { }
         screenshot:
             html: { }
             url: { }
@@ -131,6 +178,31 @@ daif_chrome_pdf:
 
 The PHP user must be able to create directories here, and Chrome must be able to read them. On Windows, this matters
 for IIS application pool identities (see [chrome-installation.md](chrome-installation.md#windows)).
+
+### PDF engines: `qpdf_binary`, `exiftool_binary`, `libreoffice_binary`, `engine_timeout`
+
+Paths of the tools used by the PDF builders and post-processing options. `null` means auto-detection. A configured
+path that does not exist throws an `EngineException` the first time the tool is needed. See
+[engines.md](engines.md) for installation, the detection order and troubleshooting.
+
+```yaml
+daif_chrome_pdf:
+    qpdf_binary: '%env(default::QPDF_PATH)%'
+    exiftool_binary: '/usr/bin/exiftool'
+    libreoffice_binary: 'C:\Program Files\LibreOffice\program\soffice.exe'
+    engine_timeout: 300000 # 5 minutes, for very large Office documents
+```
+
+### `async` and `webhook`
+
+`async.enabled` (default `false`) turns on [`generateAsync()`](async.md). It needs `symfony/messenger` and
+`symfony/http-client` (enabling it without them makes the container compilation fail); while it is off,
+`generateAsync()` throws a `LogicException`. `async.bus` is the service id of the bus the messages are dispatched on.
+
+`webhook` holds named configurations for [`generateAsync()`](async.md), the same structure as in GotenbergBundle. Each one needs at
+least a `success` URL or route. Select one with `->webhookConfiguration('name')`, with
+`default_options.webhook: 'name'` for every builder, or per builder with
+`default_options.<type>.<builder>.webhook.config_name`.
 
 ### `allow_list` / `deny_list`
 
@@ -241,11 +313,102 @@ daif_chrome_pdf:
                 fail_on_resource_loading_failed: null
                 fail_on_console_exceptions: null
 
+                # Post-processing (see pdf/post-processing.md)
+                split_mode: null                # "intervals" or "pages"
+                split_span: null                # e.g. "2" (intervals) or "1-3,5" (pages)
+                split_unify: null
+                pdf_format: null                # "PDF/A-1b", "PDF/A-2b", "PDF/A-3b"
+                pdf_universal_access: null
+                metadata:
+                    Author: ~
+                    Title: ~
+                    # Copyright, CreationDate, Creator, Keywords, Marked, ModDate, PDFVersion, Producer, Subject,
+                    # Trapped ("True", "False", "Unknown")
+                flatten: null
+                rotate_angle: null              # 90, 180, 270
+                rotate_pages: null
+                watermark_source: null          # "text", "image", "pdf"
+                watermark_expression: null
+                watermark_file: null
+                watermark_pages: null
+                watermark_options: { }          # font, points, color, opacity, rotation, scale
+                stamp_source: null
+                stamp_expression: null
+                stamp_file: null
+                stamp_pages: null
+                stamp_options: { }
+                user_password: null
+                owner_password: null
+
+                # Webhook: a configuration name and/or an inline definition (see async.md).
+                # A plain string is read as config_name: "webhook: 'default'".
+                webhook:
+                    config_name: ~
+                    success: { url: ~, route: ~, method: null }
+                    error: { url: ~, route: ~, method: null }
+                    events: { url: ~, route: ~ }
+                    extra_http_headers: { }
+
             url:
                 # Same options as html
             markdown:
                 # Same options as html
 ```
+
+### PDF file builders (`default_options.pdf.office`, `.merge`, `.split`, `.convert`, ...)
+
+Each builder accepts the nodes of the options it supports (see its page under [docs/pdf](pdf/)), plus `download_from`
+and `webhook`:
+
+```yaml
+daif_chrome_pdf:
+    default_options:
+        pdf:
+            office:
+                # LibreOffice export options, see pdf/LibreOfficePdfBuilder.md
+                landscape: null
+                native_page_ranges: null
+                merge: null
+                password: null
+                do_not_export_form_fields: null
+                single_page_sheets: null
+                lossless_image_compression: null
+                quality: null                   # 1-100
+                reduce_image_resolution: null
+                max_image_resolution: null      # 75, 150, 300, 600, 1200
+                initial_view: null
+                magnification: null
+                zoom: null
+                page_layout: null
+                # ... every other LibreOffice option in snake_case
+                # plus pdf_format, pdf_universal_access, metadata, flatten, rotate_*, split_*,
+                # watermark_*, stamp_*, user_password, owner_password
+            merge:
+                auto_index_bookmarks: null
+                # plus pdf_format, pdf_universal_access, metadata, flatten, watermark_*, stamp_*,
+                # user_password, owner_password
+            split:
+                split_mode: null
+                split_span: null
+                split_unify: null
+            convert:
+                pdf_format: null
+                pdf_universal_access: null
+            rotate:
+                rotate_angle: null
+                rotate_pages: null
+            encrypt:
+                user_password: null
+                owner_password: null
+            watermark:
+                watermark_source: null
+                watermark_options: { }
+            stamp:
+                stamp_source: null
+                stamp_options: { }
+```
+
+Run `php bin/console config:dump-reference daif_chrome_pdf` for the exact list of your installed version.
 
 ### Screenshot builders (`default_options.screenshot.html`, `.url`, `.markdown`)
 
@@ -263,7 +426,7 @@ daif_chrome_pdf:
                 omit_background: null
                 optimize_for_speed: null
 
-                # Same waiting / emulation / network / fail-on options as PDF builders
+                # Same waiting / emulation / network / fail-on / webhook options as PDF builders
                 wait_delay: null
                 wait_for_expression: null
                 wait_for_selector: null

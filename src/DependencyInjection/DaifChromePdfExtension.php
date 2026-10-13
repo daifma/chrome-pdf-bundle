@@ -7,15 +7,30 @@ use Daif\ChromePdfBundle\Browser\ChromeBrowser;
 use Daif\ChromePdfBundle\Builder\AbstractBuilder;
 use Daif\ChromePdfBundle\Builder\BuilderInterface;
 use Daif\ChromePdfBundle\Builder\Util\DownloadGuard;
+use Daif\ChromePdfBundle\Engine\BinaryFinder;
+use Daif\ChromePdfBundle\Engine\Exiftool;
+use Daif\ChromePdfBundle\Engine\LibreOffice;
+use Daif\ChromePdfBundle\Engine\PdfPostProcessor;
+use Daif\ChromePdfBundle\Engine\Qpdf;
+use Daif\ChromePdfBundle\Messenger\AsyncGenerator;
+use Daif\ChromePdfBundle\Messenger\GenerateDocumentHandler;
+use Daif\ChromePdfBundle\Messenger\GenerateDocumentMessage;
+use Daif\ChromePdfBundle\Webhook\WebhookConfigurationRegistry;
+use Daif\ChromePdfBundle\Webhook\WebhookConfigurationRegistryInterface;
+use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 use Symfony\Component\Config\FileLocator;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DependencyInjection\Extension\Extension;
 use Symfony\Component\DependencyInjection\Loader\PhpFileLoader;
 use Symfony\Component\DependencyInjection\Reference;
+use Symfony\Component\HttpClient\HttpClient;
+use Symfony\Component\Messenger\MessageBusInterface;
 use Symfony\Component\Routing\RequestContext;
 
 /**
+ * @phpstan-type WebhookEndpoint array{url?: string, route?: array{0: string, 1: array<string|int, mixed>}, method?: 'POST'|'PUT'|'PATCH'|null}
+ * @phpstan-type NamedWebhookConfiguration array{success: WebhookEndpoint, error?: WebhookEndpoint, events?: WebhookEndpoint, extra_http_headers?: array<string, mixed>}
  * @phpstan-type DaifChromePdfConfiguration array{
  *      assets_directory: list<string>,
  *      chrome_binary: string|null,
@@ -23,12 +38,19 @@ use Symfony\Component\Routing\RequestContext;
  *      no_sandbox: bool,
  *      ignore_certificate_errors: bool,
  *      temp_dir: string|null,
+ *      qpdf_binary: string|null,
+ *      exiftool_binary: string|null,
+ *      libreoffice_binary: string|null,
+ *      engine_timeout: int,
  *      allow_list: list<string>,
  *      deny_list: list<string>,
+ *      local_file_roots: list<string>,
  *      browser_options: array<string, mixed>,
  *      request_context?: array{base_uri?: string},
  *      controller_listener: bool,
- *      default_options: array<string, array<string, array<string, mixed>>>,
+ *      async: array{enabled: bool, bus: string},
+ *      webhook: array<string, NamedWebhookConfiguration>,
+ *      default_options: array<string, mixed>,
  *  }
  */
 class DaifChromePdfExtension extends Extension
@@ -108,6 +130,7 @@ class DaifChromePdfExtension extends Extension
                 '$tempDir' => $config['temp_dir'],
                 '$allowList' => $config['allow_list'],
                 '$denyList' => $config['deny_list'],
+                '$localFileRoots' => $config['local_file_roots'],
             ])
             ->addTag('monolog.logger', ['channel' => 'daif_chrome_pdf'])
         ;
@@ -120,6 +143,9 @@ class DaifChromePdfExtension extends Extension
                 '$tempDir' => $config['temp_dir'],
             ])
         ;
+
+        $this->registerEngines($container, $config);
+        $this->registerWebhooks($container, $config);
 
         // Request context
         $baseUri = $config['request_context']['base_uri'] ?? null;
@@ -144,7 +170,7 @@ class DaifChromePdfExtension extends Extension
         if ($container->getParameter('kernel.debug') === true) {
             $loader->load('debug.php');
             $container->getDefinition('daif_chrome_pdf.data_collector')
-                ->replaceArgument(3, $defaultConfiguration['default_options'])
+                ->replaceArgument(3, array_filter($defaultConfiguration['default_options'], 'is_array'))
             ;
         }
 
@@ -159,6 +185,10 @@ class DaifChromePdfExtension extends Extension
         $configValueMapping = [];
         $typeReverseMapping = $this->builderStack->getTypeReverseMapping();
         foreach ($defaultConfiguration['default_options'] as $type => $buildersOptions) {
+            if ('webhook' === $type || !\is_array($buildersOptions)) {
+                continue;
+            }
+
             foreach ($buildersOptions as $builderName => $builderOptions) {
                 $class = $typeReverseMapping[$type][$builderName] ?? null;
                 if (null === $class) {
@@ -187,13 +217,166 @@ class DaifChromePdfExtension extends Extension
      */
     private function processDefaultConfiguration(array $config): array
     {
+        $typeReverseMapping = $this->builderStack->getTypeReverseMapping();
+        $configMapping = $this->builderStack->getConfigMapping();
+        /** @var string|null $defaultWebhookName */
+        $defaultWebhookName = $config['default_options']['webhook'] ?? null;
+
         foreach ($config['default_options'] as $type => $builders) {
+            if ('webhook' === $type || !\is_array($builders)) {
+                continue;
+            }
+
             foreach ($builders as $builderName => $builderOptions) {
-                $config['default_options'][$type][$builderName] = $this->cleanBuilderConfiguration($config['default_options'][$type][$builderName]);
+                /** @var array<string, mixed> $builderOptions */
+                $class = $typeReverseMapping[$type][$builderName] ?? null;
+                if (null !== $class && isset($configMapping[$class]['webhook'])) {
+                    $builderOptions['webhook'] = $this->resolveBuilderWebhook($config['webhook'], $builderOptions['webhook'] ?? null, $defaultWebhookName);
+                }
+
+                $config['default_options'][$type][$builderName] = $this->cleanBuilderConfiguration($builderOptions);
             }
         }
 
         return $config;
+    }
+
+    /**
+     * Merges the named webhook configuration (from the builder "config_name" or default_options.webhook) with the builder one.
+     *
+     * @param array<string, NamedWebhookConfiguration> $namedConfigurations
+     *
+     * @return array<string, mixed>
+     */
+    private function resolveBuilderWebhook(array $namedConfigurations, mixed $builderWebhook, string|null $defaultWebhookName): array
+    {
+        $builderWebhookConfig = [];
+        $builderWebhookConfigName = null;
+        if (\is_array($builderWebhook)) {
+            $builderWebhookConfig = $builderWebhook;
+            $builderWebhookConfigName = \is_string($builderWebhook['config_name'] ?? null) ? $builderWebhook['config_name'] : null;
+        } elseif (\is_string($builderWebhook)) {
+            $builderWebhookConfigName = $builderWebhook;
+        }
+
+        $webhookConfigName = $builderWebhookConfigName ?? $defaultWebhookName;
+        $defaultWebhookConfig = [];
+        if (null !== $webhookConfigName) {
+            $defaultWebhookConfig = $namedConfigurations[$webhookConfigName] ?? throw new \InvalidArgumentException(\sprintf('The webhook configuration "%s" is not defined under "daif_chrome_pdf.webhook".', $webhookConfigName));
+        }
+
+        /** @var array<string, mixed> $builderWebhookConfig */
+        return array_merge(
+            $this->cleanBuilderConfiguration($defaultWebhookConfig),
+            $this->cleanBuilderConfiguration($builderWebhookConfig),
+        );
+    }
+
+    /**
+     * Removes unset endpoints and keys, keeping the route parameters (even empty).
+     *
+     * @param NamedWebhookConfiguration $configuration
+     *
+     * @return NamedWebhookConfiguration
+     */
+    private static function cleanWebhookConfiguration(array $configuration): array
+    {
+        foreach (['success', 'error', 'events'] as $type) {
+            if (!isset($configuration[$type])) {
+                continue;
+            }
+
+            $configuration[$type] = array_filter($configuration[$type], static fn (mixed $value): bool => null !== $value);
+        }
+
+        if ([] === ($configuration['extra_http_headers'] ?? null)) {
+            unset($configuration['extra_http_headers']);
+        }
+
+        return $configuration;
+    }
+
+    /**
+     * @param DaifChromePdfConfiguration $config
+     */
+    private function registerEngines(ContainerBuilder $container, array $config): void
+    {
+        $container->register('.daif_chrome_pdf.engine.binary_finder', BinaryFinder::class);
+
+        $engines = [
+            'daif_chrome_pdf.engine.qpdf' => [Qpdf::class, $config['qpdf_binary']],
+            'daif_chrome_pdf.engine.exiftool' => [Exiftool::class, $config['exiftool_binary']],
+            'daif_chrome_pdf.engine.libreoffice' => [LibreOffice::class, $config['libreoffice_binary']],
+        ];
+
+        foreach ($engines as $id => [$class, $binary]) {
+            $container->register($id, $class)
+                ->setArguments([
+                    '$binaryFinder' => new Reference('.daif_chrome_pdf.engine.binary_finder'),
+                    '$binary' => $binary,
+                    '$logger' => new Reference('logger', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+                    '$timeout' => $config['engine_timeout'],
+                    '$tempDir' => $config['temp_dir'],
+                ])
+                ->addTag('monolog.logger', ['channel' => 'daif_chrome_pdf'])
+            ;
+            $container->setAlias($class, $id);
+        }
+
+        $container->register('daif_chrome_pdf.engine.post_processor', PdfPostProcessor::class)
+            ->setArguments([
+                '$qpdf' => new Reference('daif_chrome_pdf.engine.qpdf'),
+                '$exiftool' => new Reference('daif_chrome_pdf.engine.exiftool'),
+                '$libreOffice' => new Reference('daif_chrome_pdf.engine.libreoffice'),
+                '$browser' => new Reference('daif_chrome_pdf.browser'),
+                '$tempDir' => $config['temp_dir'],
+            ])
+        ;
+        $container->setAlias(PdfPostProcessor::class, 'daif_chrome_pdf.engine.post_processor');
+    }
+
+    /**
+     * @param DaifChromePdfConfiguration $config
+     */
+    private function registerWebhooks(ContainerBuilder $container, array $config): void
+    {
+        $registry = $container->register('.daif_chrome_pdf.webhook_configuration_registry', WebhookConfigurationRegistry::class)
+            ->setArguments([
+                new Reference('router', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+                new Reference('.daif_chrome_pdf.request_context', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+            ])
+        ;
+        foreach ($config['webhook'] as $name => $webhookConfig) {
+            $registry->addMethodCall('add', [$name, self::cleanWebhookConfiguration($webhookConfig)]);
+        }
+        $container->setAlias(WebhookConfigurationRegistryInterface::class, '.daif_chrome_pdf.webhook_configuration_registry');
+
+        if (!$config['async']['enabled']) {
+            return;
+        }
+
+        // Async generation needs both Messenger (dispatch) and an HTTP client (webhook calls).
+        if (!interface_exists(MessageBusInterface::class) || !class_exists(HttpClient::class)) {
+            throw new InvalidConfigurationException('"daif_chrome_pdf.async.enabled" requires symfony/messenger and symfony/http-client. Try to run "composer require symfony/messenger symfony/http-client".');
+        }
+
+        $container->register('daif_chrome_pdf.async_generator', AsyncGenerator::class)
+            ->setArguments([
+                '$bus' => new Reference($config['async']['bus']),
+            ])
+        ;
+        $container->setAlias(AsyncGenerator::class, 'daif_chrome_pdf.async_generator');
+
+        $container->register('daif_chrome_pdf.messenger.generate_document_handler', GenerateDocumentHandler::class)
+            ->setArguments([
+                '$builders' => null,
+                '$httpClient' => new Reference('http_client'),
+                '$logger' => new Reference('logger', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+                '$urlGuard' => new Reference('.daif_chrome_pdf.download_guard'),
+            ])
+            ->addTag('messenger.message_handler', ['handles' => GenerateDocumentMessage::class])
+            ->addTag('monolog.logger', ['channel' => 'daif_chrome_pdf'])
+        ;
     }
 
     /**

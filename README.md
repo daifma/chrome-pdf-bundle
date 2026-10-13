@@ -10,11 +10,16 @@
 [![PHPStan level 8](https://img.shields.io/badge/PHPStan-level%208-brightgreen)](./phpstan.dist.neon)
 [![License](https://img.shields.io/packagist/l/daif/chrome-pdf-bundle)](LICENSE)
 
-> Generate PDFs and screenshots in Symfony with a local Chrome, Chromium or Microsoft Edge. No Docker needed.
+> Generate, merge, convert and transform PDFs in Symfony with a local Chrome, qpdf, ExifTool and LibreOffice.
+> No Docker needed.
 
 ChromePdfBundle is a **Symfony PDF bundle**: it converts **HTML to PDF**, **Twig to PDF**, URLs and Symfony routes to
 PDF, and **Markdown to PDF**, and takes PNG, JPEG or WebP **screenshots**, using a **headless Chrome**, **Chromium** or
-**Microsoft Edge** that is installed on the server. It drives the browser over the Chrome DevTools Protocol from PHP.
+**Microsoft Edge** that is installed on the server. With **qpdf**, **ExifTool** and **LibreOffice** installed next to
+it, it also **merges**, **splits**, **rotates**, **flattens**, **encrypts** and **watermarks** PDFs, attaches files,
+writes metadata, produces **PDF/A** and converts **Office documents (Word, Excel, PowerPoint, ODF) to PDF**. Each tool
+is optional: you install only what the features you use need.
+
 There is **no Docker**, **no Node.js**, no Gotenberg server and no wkhtmltopdf binary to install, and it runs on Linux,
 macOS and Windows. The builder API follows sensiolabs/gotenberg-bundle, so it works as a **Gotenberg alternative**
 when you cannot run containers, and as a **wkhtmltopdf alternative** (KnpSnappyBundle) or **Browsershot alternative**
@@ -45,14 +50,28 @@ The browser is detected automatically (`CHROME_PATH`, then the usual install loc
 as `root`, read the [sandbox note](#minimal-configuration) first. Full details are in [How to install](#how-to-install)
 and [Basic Usage](#basic-usage).
 
+Merging, splitting, Office conversion and the other PDF features need qpdf, ExifTool or LibreOffice: see
+[PDF engines](./docs/engines.md).
+
 ## How it works
 
 ChromePdfBundle uses the builder API of
 [sensiolabs/gotenberg-bundle](https://github.com/sensiolabs/GotenbergBundle) (`html()`, `url()`, `markdown()`,
-`->generate()->stream()`, processors, Twig asset helpers). Gotenberg sends each request to a Gotenberg container over
-HTTP. This bundle starts a headless Chrome process on the same machine instead and controls it through the
-[Chrome DevTools Protocol](https://chromedevtools.github.io/devtools-protocol/) (CDP), using
-[chrome-php/chrome](https://github.com/chrome-php/chrome).
+`office()`, `merge()`, ..., `->generate()->stream()`, processors, Twig asset helpers). GotenbergBundle sends each
+request to a Gotenberg container over HTTP, and Gotenberg runs Chromium, LibreOffice and PDF engines inside it. This
+bundle runs the equivalent tools on the same machine instead:
+
+- **Chrome, Chromium or Edge** renders HTML, controlled through the
+  [Chrome DevTools Protocol](https://chromedevtools.github.io/devtools-protocol/) (CDP) with
+  [chrome-php/chrome](https://github.com/chrome-php/chrome).
+- **[qpdf](https://qpdf.readthedocs.io/)** merges, splits, rotates, flattens, encrypts, attaches files, applies
+  watermarks and stamps, and writes bookmarks.
+- **[ExifTool](https://exiftool.org/)** writes metadata.
+- **[LibreOffice](https://www.libreoffice.org/)** converts Office documents and produces PDF/A and PDF/UA.
+
+qpdf, ExifTool and LibreOffice are started as short-lived processes when a feature needs them, and found
+automatically like Chrome. Optionally, `generateAsync()` and webhooks can go through
+[Symfony Messenger](./docs/async.md) (disabled by default).
 
 ## Why this bundle?
 
@@ -63,16 +82,19 @@ I work in **on-premise environments** (banking, insurance, other regulated indus
 often cannot run Docker because of security policies or infrastructure rules.
 
 These machines usually have a browser installed already, or can get one from the standard package manager or the
-vendor's MSI. Microsoft Edge is preinstalled on Windows Server 2019 and later.
+vendor's MSI. Microsoft Edge is preinstalled on Windows Server 2019 and later. qpdf, ExifTool and LibreOffice are
+also available from the standard package managers (apt, dnf, apk, Homebrew, Chocolatey, winget) or as MSI installers.
 
-So this bundle keeps the same builder API and drives the local browser directly through CDP. There is no container
-and no extra HTTP service to run.
+So this bundle keeps the same builder API and calls these local tools directly. There is no container and no extra
+HTTP service to run.
 
 | Gotenberg-based setup | ChromePdfBundle |
 |---|---|
-| Docker + a running Gotenberg container | A Chrome / Chromium / Edge binary |
-| HTTP calls to an external service | Local CDP connection (WebSocket) |
-| Chromium **and** LibreOffice / PDF engines | Chromium only (see [feature parity](#feature-parity-with-sensiolabsgotenberg-bundle)) |
+| Docker + a running Gotenberg container | A Chrome / Chromium / Edge binary, plus qpdf, ExifTool and LibreOffice if you need their features |
+| HTTP calls to an external service | Local CDP connection (WebSocket) and local processes |
+| Chromium, LibreOffice and PDF engines (pdfcpu, qpdf, ExifTool) in the container | The same kinds of tools, installed on the host (see [feature parity](#feature-parity-with-sensiolabsgotenberg-bundle)) |
+| Webhooks called by Gotenberg | Optional `generateAsync()` through Symfony Messenger (opt-in), the worker calls the webhook |
+| LibreOffice kept running by Gotenberg | One LibreOffice process per conversion, slower to start |
 
 ### Compared with other PHP and Symfony PDF tools
 
@@ -81,8 +103,8 @@ against each project's README and repository in October 2026.
 
 | Package | Type | Needs at runtime | Rendering | Notes |
 |---|---|---|---|---|
-| **daif/chrome-pdf-bundle** | Symfony bundle | A Chrome, Chromium or Edge binary | The installed Chromium version | GotenbergBundle-style builders for PDF and screenshots from HTML, Twig, URL and Markdown. Chromium features only (no merge, no Office conversion). |
-| [sensiolabs/gotenberg-bundle](https://github.com/sensiolabs/GotenbergBundle) | Symfony bundle | A running [Gotenberg](https://gotenberg.dev/) service, distributed as a Docker image | Chromium and LibreOffice inside Gotenberg | Does more than this bundle (merge, split, Office files, PDF/A). The better choice when you can run Docker. |
+| **daif/chrome-pdf-bundle** | Symfony bundle | A Chrome, Chromium or Edge binary; qpdf, ExifTool and LibreOffice for the PDF and Office features | The installed Chromium and LibreOffice versions | GotenbergBundle-style builders for PDF and screenshots from HTML, Twig, URL and Markdown, plus merge, split, rotate, flatten, encrypt, attachments, watermark, metadata, PDF/A and Office to PDF. |
+| [sensiolabs/gotenberg-bundle](https://github.com/sensiolabs/GotenbergBundle) | Symfony bundle | A running [Gotenberg](https://gotenberg.dev/) service, distributed as a Docker image | Chromium and LibreOffice inside Gotenberg | Same builder API. Gotenberg keeps LibreOffice running and ships every tool in one tested image, so it is faster for Office conversions and simpler to install when you can run Docker. |
 | [knplabs/knp-snappy-bundle](https://github.com/KnpLabs/KnpSnappyBundle) | Symfony bundle | The wkhtmltopdf binary | Qt WebKit | The [wkhtmltopdf](https://github.com/wkhtmltopdf/wkhtmltopdf) project is archived and no longer maintained. Its old WebKit engine has weak support for flexbox, grid and recent JavaScript. |
 | [spatie/browsershot](https://github.com/spatie/browsershot) | PHP library | Node.js, npm and Puppeteer | Chromium through Puppeteer | Not a Symfony bundle: no configuration, Twig or response integration out of the box. |
 | [padam87/rasterize-bundle](https://github.com/Padam87/RasterizeBundle) | Symfony bundle | Node.js and Puppeteer (default provider) | Chromium through Puppeteer | Renders HTML you pass in; needs a Node.js toolchain on the server. |
@@ -93,8 +115,9 @@ against each project's README and repository in October 2026.
 
 There are already Symfony bundles that drive a local Chrome without Docker, but to our knowledge no other Symfony
 bundle combines that with the GotenbergBundle builder API: HTML, URL and Markdown builders for both PDFs and
-screenshots, processors (file, S3, Flysystem), Twig asset helpers, a web profiler panel, request filtering for
-`file://` and remote URLs, and browser auto-detection on Windows including Microsoft Edge. If you know of one, please
+screenshots, PDF manipulation and Office conversion with local tools, processors (file, S3, Flysystem), async
+generation with webhooks, Twig asset helpers, a web profiler panel, request filtering for `file://` and remote URLs,
+and auto-detection of the browser and the tools on Windows. If you know of one, please
 [open an issue](https://github.com/daifma/chrome-pdf-bundle/issues) so this table can be corrected.
 
 ## How to install
@@ -103,8 +126,10 @@ screenshots, processors (file, S3, Flysystem), Twig asset helpers, a web profile
 
 - PHP 8.1+ with **`ext-sockets`** (chrome-php needs it to talk to the browser over a socket)
 - Symfony 6.4 / 7.x / 8.x
+- `ext-zip` (only used when a builder returns several files as a ZIP archive)
 - One of Google Chrome, Chromium or Microsoft Edge (Chromium-based) on the same machine. See the
   [Chrome installation guide](./docs/chrome-installation.md) for Linux, macOS and Windows.
+- Optional, only for the features that need them: qpdf, ExifTool, LibreOffice. See [PDF engines](./docs/engines.md).
 
 ```bash
 composer require daif/chrome-pdf-bundle
@@ -132,6 +157,7 @@ daif_chrome_pdf:
     assets_directory: '%kernel.project_dir%/assets'
     # chrome_binary: '%env(default::CHROME_PATH)%'   # optional, auto-detected when null
     # timeout: 30000                                 # ms
+    # qpdf_binary: ~, exiftool_binary: ~, libreoffice_binary: ~   # optional, auto-detected when null
 ```
 
 The bundle detects the browser automatically: first the `CHROME_PATH` environment variable, then the usual install
@@ -212,6 +238,53 @@ return $chromeScreenshot->html()
 ;
 ```
 
+### Merge PDFs
+
+```php
+return $chromePdf->merge()
+    ->files('1-cover.pdf', '2-report.pdf')   // needs qpdf; merged in file name order
+    ->generate()
+    ->stream()
+;
+```
+
+### Office document to PDF
+
+```php
+return $chromePdf->office()
+    ->files('contract.docx')             // needs LibreOffice
+    ->generate()
+    ->stream()
+;
+```
+
+### Post-processing a generated PDF
+
+```php
+use Daif\ChromePdfBundle\Enumeration\PdfFormat;
+
+return $chromePdf->html()
+    ->content('invoice.html.twig', ['invoice' => $invoice])
+    ->pdfFormat(PdfFormat::Pdf3b)        // LibreOffice
+    ->metadata(['Author' => 'ACME'])     // ExifTool
+    ->embedFiles('factur-x.xml')         // qpdf
+    ->generate()
+    ->stream()
+;
+```
+
+### Generate in the background and send the file to a webhook (optional)
+
+Disabled by default. Install `symfony/messenger` and `symfony/http-client`, set `daif_chrome_pdf.async.enabled: true`,
+then:
+
+```php
+$chromePdf->html()
+    ->content('report.html.twig')
+    ->webhookUrl('https://example.com/webhook/pdf-ready')
+    ->generateAsync();                   // LogicException unless async is enabled
+```
+
 ### Twig assets
 
 To link a static asset (image, CSS, font) from a template, use `chrome_pdf_asset()`:
@@ -222,73 +295,83 @@ To link a static asset (image, CSS, font) from a template, use `chrome_pdf_asset
 
 ## Feature parity with sensiolabs/gotenberg-bundle
 
-The table compares this bundle with GotenbergBundle 1.4+. Chrome can render HTML and print it to PDF. It cannot
-change an existing PDF, so any feature that needs a PDF engine (LibreOffice, qpdf, pdfcpu, ...) is not available.
+The table compares this bundle with GotenbergBundle 1.4+. Chrome renders HTML and prints it to PDF. The features that
+need a PDF engine or LibreOffice call local tools instead of Gotenberg's container. The "Needs" column says which one;
+a missing tool only disables the features that use it, with an `EngineException` telling what to install.
 
-**Legend:** ✅ supported · ⚠️ supported with differences · ❌ not supported (needs a PDF engine)
+**Legend:** ✅ supported · ⚠️ supported with differences · ❌ not supported
 
 ### Builders
 
-| GotenbergBundle | Status | Notes |
-|---|---|---|
-| `html()` PDF | ✅ | |
-| `url()` PDF (`url()`, `route()`) | ⚠️ | Only `http` / `https` targets are accepted, and they go through the [request filter](./docs/security.md#request-filtering) (`allow_list` / `deny_list`). |
-| `markdown()` PDF | ⚠️ | Markdown is converted in PHP with league/commonmark (Gotenberg uses its own converter). The `{{ toHTML "file.md" }}` directive is supported, also with flexible spacing and quotes. |
-| `html()` / `url()` / `markdown()` screenshots | ⚠️ | Full page by default, like Gotenberg. `clip(true)` captures only the viewport. |
-| `libreOffice()` (Office → PDF) | ❌ | Needs LibreOffice. Run `soffice --headless --convert-to pdf` yourself, or use a dedicated service. |
-| `merge()` | ❌ | Use [qpdf](https://qpdf.readthedocs.io/) (`qpdf --empty --pages a.pdf b.pdf -- out.pdf`), pdftk, or [setasign/fpdi](https://github.com/Setasign/FPDI). |
-| `split()` | ❌ | qpdf / pdftk / FPDI. For one Chrome render, `nativePageRanges()` limits which pages are printed. |
-| `flatten()` | ❌ | qpdf `--flatten-annotations=all`, pdftk `flatten`. |
-| `encrypt()` | ❌ | qpdf `--encrypt`, pdftk `owner_pw`/`user_pw`, setasign SetaPDF-Core. |
-| `embed()` (attachments) | ❌ | qpdf `--add-attachment`, pdftk `attach_files`. |
-| `watermark()` / `stamp()` | ❌ | Put the watermark in the HTML (CSS `position: fixed` is repeated on every page), or post-process with pdftk `background`/`stamp` or FPDI. |
-| `rotate()` | ❌ | qpdf `--rotate`, pdftk `cat 1-endeast`. Use `landscape()` when you generate the PDF. |
-| `convert()` (PDF/A, PDF/UA) | ❌ | Needs a PDF engine (Ghostscript, veraPDF-validated pipelines). `generateTaggedPdf()` produces a tagged PDF, which helps accessibility but is not PDF/UA certification. |
+| GotenbergBundle | Status | Needs | Notes |
+|---|---|---|---|
+| `html()` PDF | ✅ | Chrome | |
+| `url()` PDF (`url()`, `route()`) | ⚠️ | Chrome | Only `http` / `https` targets are accepted, and they go through the [request filter](./docs/security.md#request-filtering) (`allow_list` / `deny_list`). |
+| `markdown()` PDF | ⚠️ | Chrome | Markdown is converted in PHP with league/commonmark (Gotenberg uses its own converter). The `{{ toHTML "file.md" }}` directive is supported, also with flexible spacing and quotes. |
+| `html()` / `url()` / `markdown()` screenshots | ⚠️ | Chrome | Full page by default, like Gotenberg. `clip(true)` captures only the viewport. |
+| `office()` (Office to PDF) | ⚠️ | LibreOffice | Same options. One `soffice` process per document, so each conversion pays LibreOffice's start-up time. See [LibreOfficePdfBuilder](./docs/pdf/LibreOfficePdfBuilder.md#differences-from-gotenbergbundle). |
+| `merge()` | ⚠️ | qpdf | Files are merged in file name order, as in Gotenberg. Bookmarks need qpdf 11+. `autoIndexBookmarks()` adds one bookmark per file but does not import the bookmarks of the inputs. |
+| `split()` | ✅ | qpdf | Several output files are returned as a ZIP, like Gotenberg. |
+| `flatten()` | ✅ | qpdf | |
+| `encrypt()` | ✅ | qpdf | AES-256. |
+| `embed()` (attachments) | ✅ | qpdf | |
+| `rotate()` | ✅ | qpdf | |
+| `watermark()` / `stamp()` | ⚠️ | qpdf (+ Chrome for text and image) | Supported options: `font`, `points`, `color`, `opacity`, `rotation`, `scale`. Other pdfcpu options are ignored. |
+| `convert()` (PDF/A, PDF/UA) | ⚠️ | LibreOffice | Re-export through LibreOffice Draw, as in Gotenberg. The output is not validated by the bundle. |
 
 ### Builder options
 
-| GotenbergBundle option | Status | Notes |
-|---|---|---|
-| `content` / `contentFile` / `contentRaw` | ✅ | |
-| `header` / `footer` / `headerFile` / `footerFile` / `headerRaw` / `footerRaw` | ⚠️ | Rendered by Chrome's native header/footer template. Assets used in them are inlined as `data:` URIs. Header and footer need margins, and support only a limited subset of CSS. See [header-footer](./docs/pdf/header-footer.md). |
-| `assets` / `addAsset` | ⚠️ | Copied next to the rendered `index.html` under their basename. Two different files with the same basename raise an error instead of overwriting each other. |
-| `downloadFrom` | ⚠️ | Files are downloaded by PHP into the conversion directory, so the page can reference them like assets. They are not attached to the output PDF (that needs a PDF engine). |
-| paper size, margins, `landscape`, `scale`, `nativePageRanges`, `printBackground`, `omitBackground`, `preferCssPageSize`, `singlePage`, `generateDocumentOutline`, `generateTaggedPdf` | ✅ | Every `Unit` is supported (`in`, `pt`, `px`, `mm`, `cm`, `pc`). |
-| `waitDelay` / `waitForExpression` / `waitForSelector` | ✅ | The expression or selector is polled until it is truthy or present, up to the global `timeout`. |
-| `skipNetworkIdleEvent` / `skipNetworkAlmostIdleEvent` | ✅ | Both default to `true` (wait for `load` only). Set one to `false` to also wait for the network to be idle or almost idle. |
-| `emulatedMediaType` / `emulatedMediaFeatures` | ✅ | |
-| `cookies` / `setCookie` / `addCookies` / `forwardCookie` | ✅ | `Symfony\Component\HttpFoundation\Cookie` objects are accepted. |
-| `userAgent` / `extraHttpHeaders` / `addExtraHttpHeaders` | ✅ | |
-| `failOnHttpStatusCodes` / `failOnResourceHttpStatusCodes` / `ignoreResourceHttpStatusDomains` / `failOnResourceLoadingFailed` / `failOnConsoleExceptions` | ✅ | `499` means the whole `400–499` range, as in Gotenberg. Failures throw `BrowserException`. |
-| screenshot `width` / `height` / `clip` / `format` / `quality` / `omitBackground` / `optimizeForSpeed` / `deviceScaleFactor` | ⚠️ | `quality` is ignored for PNG. `clip` defaults to `false` (full page). |
-| `fileName` / `processor` / `disposition`, `stream()` / `process()` | ✅ | Screenshots are served with the matching `image/png`, `image/jpeg` or `image/webp` Content-Type. |
-| `metadata` / `addMetadata` | ❌ | Chrome only writes `Title` (from `<title>`) and `Creator`/`Producer`. Use exiftool or qpdf to set other metadata afterwards. |
-| `pdfFormat` / `pdfUniversalAccess` (PDF/A, PDF/UA) | ❌ | Needs a PDF engine. |
-| `split*`, `flatten`, `encrypt`, `embeds`, `watermark*`, `stamp*`, `rotate*` options on Chromium builders | ❌ | Post-process the PDF (see above). |
+| GotenbergBundle option | Status | Needs | Notes |
+|---|---|---|---|
+| `content` / `contentFile` / `contentRaw` | ✅ | | |
+| `header` / `footer` / `headerFile` / `footerFile` / `headerRaw` / `footerRaw` | ⚠️ | | Rendered by Chrome's native header/footer template. Assets used in them are inlined as `data:` URIs. Header and footer need margins, and support only a limited subset of CSS. See [header-footer](./docs/pdf/header-footer.md). |
+| `assets` / `addAsset` | ⚠️ | | Copied next to the rendered `index.html` under their basename. Two different files with the same basename raise an error instead of overwriting each other. |
+| `downloadFrom` | ✅ | `symfony/http-client` | Downloaded by PHP. Chromium builders get them as assets, file builders as input files. |
+| paper size, margins, `landscape`, `scale`, `nativePageRanges`, `printBackground`, `omitBackground`, `preferCssPageSize`, `singlePage`, `generateDocumentOutline`, `generateTaggedPdf` | ✅ | | Every `Unit` is supported (`in`, `pt`, `px`, `mm`, `cm`, `pc`). |
+| `waitDelay` / `waitForExpression` / `waitForSelector` | ✅ | | The expression or selector is polled until it is truthy or present, up to the global `timeout`. |
+| `skipNetworkIdleEvent` / `skipNetworkAlmostIdleEvent` | ✅ | | Both default to `true` (wait for `load` only). Set one to `false` to also wait for the network to be idle or almost idle. |
+| `emulatedMediaType` / `emulatedMediaFeatures` | ✅ | | |
+| `cookies` / `setCookie` / `addCookies` / `forwardCookie` | ✅ | | `Symfony\Component\HttpFoundation\Cookie` objects are accepted. |
+| `userAgent` / `extraHttpHeaders` / `addExtraHttpHeaders` | ✅ | | |
+| `failOnHttpStatusCodes` / `failOnResourceHttpStatusCodes` / `ignoreResourceHttpStatusDomains` / `failOnResourceLoadingFailed` / `failOnConsoleExceptions` | ✅ | | `499` means the whole `400-499` range, as in Gotenberg. Failures throw `BrowserException`. |
+| screenshot `width` / `height` / `clip` / `format` / `quality` / `omitBackground` / `optimizeForSpeed` / `deviceScaleFactor` | ⚠️ | | `quality` is ignored for PNG. `clip` defaults to `false` (full page). |
+| `fileName` / `processor` / `disposition`, `stream()` / `process()` | ✅ | | Screenshots are served with the matching `image/png`, `image/jpeg` or `image/webp` Content-Type, ZIP results with `application/zip`. |
+| `metadata` / `addMetadata` | ✅ | ExifTool | Any ExifTool-writable tag, including custom XMP namespaces. |
+| `pdfFormat` / `pdfUniversalAccess` (PDF/A, PDF/UA) | ⚠️ | LibreOffice | On Chromium output, the PDF is re-exported through LibreOffice Draw. Check the result with veraPDF if you need compliance. |
+| `splitMode` / `splitSpan` / `splitUnify` | ✅ | qpdf | |
+| `flatten` | ✅ | qpdf | |
+| `rotateAngle` / `rotatePages` | ✅ | qpdf | |
+| `watermark*` / `stamp*` | ⚠️ | qpdf (+ Chrome) | See the `watermark()` / `stamp()` row above. |
+| `embedFiles` | ✅ | qpdf | |
+| `userPassword` / `ownerPassword` | ✅ | qpdf | |
+| `bookmarks` / `addBookmark` / `autoIndexBookmarks` | ⚠️ | qpdf 11+ | Bookmarks of the input files are not kept. |
+| LibreOffice export options (`landscape`, `nativePageRanges`, `quality`, `maxImageResolution`, viewer preferences, LibreOffice watermark, ...) | ✅ | LibreOffice | Passed to LibreOffice's PDF export filter. See [LibreOfficePdfBuilder](./docs/pdf/LibreOfficePdfBuilder.md). |
 
 ### Platform
 
-| GotenbergBundle feature | Status | Notes |
-|---|---|---|
-| Webhooks / `generateAsync()` | ❌ | There is no remote service to call back. Use [Symfony Messenger](https://symfony.com/doc/current/messenger.html): dispatch a message, and have the handler generate the file with a `FileProcessor` or a `FlysystemProcessor`. |
-| Default options per builder in YAML | ✅ | `default_options.pdf.{html,url,markdown}` and `default_options.screenshot.{html,url,markdown}`. |
-| `request_context.base_uri` for `route()` | ✅ | |
-| `controller_listener` (return a result from a controller) | ✅ | |
-| Processors (File, Null, Tempfile, Chain, InMemory, Flysystem, AsyncAws S3) | ✅ | |
-| Web profiler panel | ✅ | |
-| Gotenberg version detection / per-version warnings | ❌ | Not applicable: the features you get depend on the installed browser version. |
-| HTTP client / DSN configuration | ⚠️ | Replaced by `chrome_binary`, `timeout`, `browser_options`, ... |
+| GotenbergBundle feature | Status | Needs | Notes |
+|---|---|---|---|
+| Webhooks / `generateAsync()` | ⚠️ | opt-in: `async.enabled: true`, `symfony/messenger`, `symfony/http-client` | Optional, disabled by default. A Messenger worker generates the file and sends it to the webhook URL. Same builder methods and `webhook` configuration. Processors are not carried over. See [async](./docs/async.md). |
+| Default options per builder in YAML | ✅ | | `default_options.pdf.*` (html, url, markdown, office, merge, split, convert, flatten, encrypt, embed, rotate, watermark, stamp) and `default_options.screenshot.*`. |
+| `request_context.base_uri` for `route()` | ✅ | | Also used for webhook routes. |
+| `controller_listener` (return a result from a controller) | ✅ | | |
+| Processors (File, Null, Tempfile, Chain, InMemory, Flysystem, AsyncAws S3) | ✅ | | |
+| Web profiler panel | ✅ | | |
+| Gotenberg version detection / per-version warnings | ❌ | | Not applicable: the features you get depend on the installed browser and tool versions. |
+| HTTP client / DSN configuration | ⚠️ | | Replaced by `chrome_binary`, `qpdf_binary`, `exiftool_binary`, `libreoffice_binary`, `timeout`, `engine_timeout`, `browser_options`, ... |
 
 ## Documentation
 
 1. [Chrome installation guide (Linux, macOS, Windows)](./docs/chrome-installation.md)
-2. [Configuration reference](./docs/configuration.md)
-3. [Security](./docs/security.md)
-4. [Processing (saving, streaming, S3...)](./docs/processing.md)
-5. [Working with assets](./docs/assets.md)
-6. [Working with fonts](./docs/fonts.md)
-7. [Testing](./docs/testing.md)
-8. [Upgrade notes](./UPGRADE.md) and [Changelog](./CHANGELOG.md)
+2. [PDF engines: qpdf, ExifTool, LibreOffice (Linux, macOS, Windows)](./docs/engines.md)
+3. [Configuration reference](./docs/configuration.md)
+4. [Security](./docs/security.md)
+5. [Processing (saving, streaming, S3...)](./docs/processing.md)
+6. [Async generation and webhooks (optional)](./docs/async.md)
+7. [Working with assets](./docs/assets.md)
+8. [Working with fonts](./docs/fonts.md)
+9. [Testing](./docs/testing.md)
+10. [Upgrade notes](./UPGRADE.md) and [Changelog](./CHANGELOG.md)
 
 ### PDF
 
@@ -296,6 +379,17 @@ change an existing PDF, so any feature that needs a PDF engine (LibreOffice, qpd
 2. [URL Builder](./docs/pdf/UrlPdfBuilder.md)
 3. [Markdown Builder](./docs/pdf/MarkdownPdfBuilder.md)
 4. [Header / Footer](./docs/pdf/header-footer.md)
+5. [Post-processing options (split, PDF/A, metadata, watermark, encryption...)](./docs/pdf/post-processing.md)
+6. [LibreOffice Builder (Office to PDF)](./docs/pdf/LibreOfficePdfBuilder.md)
+7. [Merge Builder](./docs/pdf/MergePdfBuilder.md)
+8. [Split Builder](./docs/pdf/SplitPdfBuilder.md)
+9. [Convert Builder (PDF/A, PDF/UA)](./docs/pdf/ConvertPdfBuilder.md)
+10. [Flatten Builder](./docs/pdf/FlattenPdfBuilder.md)
+11. [Encrypt Builder](./docs/pdf/EncryptPdfBuilder.md)
+12. [Embed Builder (attachments)](./docs/pdf/EmbedPdfBuilder.md)
+13. [Rotate Builder](./docs/pdf/RotatePdfBuilder.md)
+14. [Watermark Builder](./docs/pdf/WatermarkPdfBuilder.md)
+15. [Stamp Builder](./docs/pdf/StampPdfBuilder.md)
 
 ### Screenshot
 

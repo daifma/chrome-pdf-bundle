@@ -13,6 +13,7 @@ server issue requests or read files. The defaults are strict, and this page expl
 | `file://` access | always restricted | Only files inside the conversion's private temp directory can be loaded. |
 | `url()` / `route()` targets | filtered | Only `http` / `https` targets are accepted. `allow_list` and `deny_list` apply. |
 | `allow_list` / `deny_list` | empty | Every http(s) URL is allowed until you configure them. |
+| PDF engines | run only when a feature needs them | qpdf, ExifTool and LibreOffice run as child processes without a shell, see [below](#pdf-engines-qpdf-exiftool-libreoffice). |
 
 Versions before the hardening release had the sandbox disabled and certificate errors ignored. See
 [UPGRADE.md](../UPGRADE.md).
@@ -48,7 +49,11 @@ Chrome may load `file://` URLs **only inside that directory**. A request such as
 before Chrome reads anything. Assets added with `assets()` / `addAsset()` / `chrome_pdf_asset()` and files fetched with
 `downloadFrom()` are copied **into** that directory, so they keep working.
 
-This rule is always active and cannot be turned off. If you need to show a file from elsewhere, add it as an asset.
+This rule is always active. If you need to show a file from elsewhere, add it as an asset, or list its directory in
+`local_file_roots` (opt-in, empty by default), for example `%kernel.project_dir%/public` for an application whose
+templates reference their CSS and images with `file://` URLs. Only files that exist inside those directories are
+readable; symbolic links are resolved first, so a link cannot point outside a root. Never list a directory that holds
+secrets (the project root, `config/`, `var/`). URL conversions (`url()`, `route()`) never read local files.
 
 ## Request filtering
 
@@ -129,6 +134,37 @@ If any part of the content comes from users (comments, rich-text fields, uploade
 - **Cookies and headers** set with `cookies()`, `forwardCookie()` and `extraHttpHeaders()` are sent to **every** host
   the page contacts, as long as the cookie domain or header scope matches. Don't forward session cookies when you
   render third-party URLs.
+
+## PDF engines (qpdf, ExifTool, LibreOffice)
+
+The [engines](engines.md) run as child processes of PHP, with the same OS account. Arguments are passed as an array
+to symfony/process, never through a shell string, so file names and option values cannot inject commands.
+
+- **Untrusted Office files.** `office()` opens the document with a full LibreOffice. Macros contained in the
+  document are never executed and links to external files are not updated, but the import filters parse complex
+  formats and have had security fixes in the past. Keep LibreOffice up to date, run it with an unprivileged account, and treat documents
+  uploaded by users as untrusted input.
+- **Untrusted PDFs.** qpdf and ExifTool parse the input files. Same advice: keep them updated.
+- **Passwords** given to `userPassword()` and `ownerPassword()` are passed to qpdf through a temporary argument file
+  in the private working directory, not on the command line, and are masked in error messages. The `password()` of
+  `office()` is written to the temporary macro in the per-call LibreOffice profile, which is deleted after the
+  conversion.
+- **Metadata keys** passed to `metadata()` / `addMetadata()` must be PDF or XMP tag names (`Title`,
+  `XMP-dc:Rights`...). ExifTool pseudo tags that move or link files (`FileName`, `Directory`, `SymLink`, ...), the
+  `File:` and `System:` groups and lowercase names (ExifTool options such as `json=FILE`) are rejected, so forwarding
+  user-supplied keys cannot touch other files.
+- **Temporary files** (inputs, intermediate PDFs, LibreOffice profiles) are written under `temp_dir` and deleted at
+  the end of each generation.
+
+## Webhooks
+
+With [`generateAsync()`](async.md) (optional, disabled by default), the worker sends the generated document to the webhook URLs. Do not build these
+URLs from user input: the request is made by your server, so a user-controlled URL could send documents to an
+arbitrary host. Use named configurations or routes, and protect the receiving endpoints with a secret header.
+Webhook URLs are checked against `allow_list` / `deny_list` like `downloadFrom()`, and redirects are not followed;
+set a `deny_list` for your private networks if URLs can come from clients. Error webhooks only receive a generic
+message for internal failures. Passwords and extra headers travel in the Messenger message: see
+[async.md](async.md#what-is-carried-to-the-worker).
 
 ## Run Chrome as a dedicated user
 

@@ -164,13 +164,31 @@ All waits are bounded by the global [`timeout`](../configuration.md#timeout).
 A code ending in `99` means the whole hundred: `[499]` matches 400–499, `[599]` matches 500–599 (as in Gotenberg).
 Failures throw `Daif\ChromePdfBundle\Exception\BrowserException` with a message naming the URL and status.
 
+### Post-processing
+
+These options change the PDF after Chrome has printed it. They call local tools (qpdf, ExifTool, LibreOffice), see
+[post-processing](post-processing.md) and [engines](../engines.md). Without them, no external tool is called.
+
+| Method | Description |
+|---|---|
+| `splitMode()` / `splitSpan()` / `splitUnify()` | Split the PDF (the result is a ZIP when several files are produced) |
+| `pdfFormat(PdfFormat\|null $format)` / `pdfUniversalAccess(bool $bool = true)` | PDF/A, PDF/UA |
+| `metadata(array $metadata)` / `addMetadata(string $key, string $value)` | Metadata |
+| `flatten(bool $bool = true)` | Flatten forms and annotations |
+| `rotateAngle(RotateAngle\|null $angle = null)` / `rotatePages(string\|null $pages = null)` | Rotate pages |
+| `watermarkSource()` / `watermarkExpression()` / `watermarkFile()` / `watermarkPages()` / `watermarkOptions()` | Watermark under the content |
+| `stampSource()` / `stampExpression()` / `stampFile()` / `stampPages()` / `stampOptions()` | Stamp over the content |
+| `embedFiles(string\|Stringable\|EmbeddedFile ...$paths)` | Attach files (e.g. a Factur-X XML) |
+| `userPassword(string\|null $password)` / `ownerPassword(string\|null $password)` | Encrypt (AES-256) |
+
 ### Output
 
 | Method | Description |
 |---|---|
 | `fileName(string $fileName, string $headerDisposition = 'inline')` | Download name and disposition (`HeaderUtils::DISPOSITION_ATTACHMENT` / `_INLINE`) |
 | `processor(ProcessorInterface $processor)` | See [processing](../processing.md) |
-| `generate()` | Run Chrome and return a `ChromePdfFileResult` |
+| `generate()` | Run Chrome (and the post-processing steps) and return a `ChromePdfFileResult` |
+| `webhook*()`, `generateAsync()` | Optional, disabled by default: generate in a Messenger worker and send the file to a URL, see [async](../async.md) |
 
 ## Examples
 
@@ -274,8 +292,8 @@ $chromePdf->html()
 ```
 
 > [!NOTE]
-> In Gotenberg, `downloadFrom` replaces uploaded *input files* (for example, PDFs to merge). Chrome cannot merge or
-> embed files, so here it only provides resources for the page.
+> On the Chromium builders, `downloadFrom` provides resources for the page. On the file builders (`merge()`,
+> `split()`, `office()`, ...), the downloaded files are the input files, as in Gotenberg.
 
 ## Differences from GotenbergBundle
 
@@ -286,11 +304,14 @@ The API is the same, but Chrome runs locally instead of inside Gotenberg, so a f
 - **Markdown**: the `{{ toHTML "file.md" }}` directive must be protected from Twig (`{% verbatim %}`) inside a Twig
   wrapper. See [MarkdownPdfBuilder](MarkdownPdfBuilder.md#twig-wrapper).
 - **Screenshots** capture the full page by default, like Gotenberg; `clip()` limits the capture to the viewport.
-- **`downloadFrom()`** only provides resources for the page. It cannot attach files to the PDF.
-- **No PDF engine**: `merge`, `split`, `flatten`, `encrypt`, `embed`, `watermark`, `stamp`, `rotate`, `metadata`,
-  `pdfFormat` and `pdfUniversalAccess` don't exist. See the [feature parity table](../../README.md#feature-parity-with-sensiolabsgotenberg-bundle).
-- **Errors**: every engine failure (timeout, blocked URL, fail-on rule, browser crash) throws
-  `Daif\ChromePdfBundle\Exception\BrowserException`, instead of an HTTP client error from Gotenberg.
+- **`downloadFrom()`** provides resources for the page. Use `embedFiles()` to attach files to the PDF.
+- **Post-processing** (`split*`, `pdfFormat`, `metadata`, `flatten`, `rotate*`, `watermark*`, `stamp*`,
+  `embedFiles`, `userPassword` / `ownerPassword`) runs local qpdf, ExifTool or LibreOffice instead of Gotenberg's PDF
+  engines. Watermark and stamp options support a subset of the pdfcpu keys. See [post-processing](post-processing.md).
+- **Async** (optional, disabled by default): `generateAsync()` goes through Symfony Messenger, see [async](../async.md).
+- **Errors**: every browser failure (timeout, blocked URL, fail-on rule, browser crash) throws
+  `Daif\ChromePdfBundle\Exception\BrowserException`, and every qpdf, ExifTool or LibreOffice failure throws
+  `Daif\ChromePdfBundle\Exception\EngineException`, instead of an HTTP client error from Gotenberg.
 
 ## Troubleshooting
 

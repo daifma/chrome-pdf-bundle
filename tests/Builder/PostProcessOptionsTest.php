@@ -15,6 +15,7 @@ use Daif\ChromePdfBundle\Enumeration\StampSource;
 use Daif\ChromePdfBundle\Enumeration\WatermarkSource;
 use Daif\ChromePdfBundle\Exception\InvalidBuilderConfiguration;
 use Daif\ChromePdfBundle\Exception\LogicException;
+use Symfony\Component\Filesystem\Path;
 
 final class PostProcessOptionsTest extends AbstractBuilderTestCase
 {
@@ -69,8 +70,9 @@ final class PostProcessOptionsTest extends AbstractBuilderTestCase
             'flatten' => true,
             'rotate' => ['angle' => 90, 'pages' => '1-3'],
             'watermark' => ['source' => 'text', 'expression' => 'DRAFT', 'pages' => '1', 'options' => ['opacity' => 0.2]],
-            'stamp' => ['source' => 'image', 'expression' => $assets.'/logo.png', 'pages' => null, 'options' => []],
-            'embeds' => [$assets.'/logo.png', $assets.'/other_logo.png'],
+            // files resolved from assets_directory come back canonicalized (forward slashes on Windows)
+            'stamp' => ['source' => 'image', 'expression' => Path::canonicalize($assets.'/logo.png'), 'pages' => null, 'options' => []],
+            'embeds' => [Path::canonicalize($assets.'/logo.png'), $assets.'/other_logo.png'],
             'encrypt' => ['userPassword' => 'user', 'ownerPassword' => null],
         ], self::postProcessOptions($builder));
 

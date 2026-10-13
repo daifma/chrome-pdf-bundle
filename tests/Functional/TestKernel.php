@@ -27,6 +27,10 @@ final class TestKernel extends BaseKernel implements ExtensionInterface, Configu
         ChromePdfFacadeInterface::class,
         'daif_chrome_pdf.browser',
         'daif_chrome_pdf.data_collector',
+        'daif_chrome_pdf.engine.qpdf',
+        'daif_chrome_pdf.engine.exiftool',
+        'daif_chrome_pdf.async_generator',
+        'test.webhook_recorder',
     ];
 
     public function __construct(

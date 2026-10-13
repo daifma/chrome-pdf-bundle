@@ -49,3 +49,16 @@ CHROME_PDF_BROWSER_TESTS=1 CHROME_PATH=/usr/bin/chromium ./vendor/bin/phpunit
 
 `CHROME_NO_SANDBOX=0|1` overrides the sandbox setting used by these tests. Without it, the sandbox is disabled on
 Linux (containers and CI runners usually lack unprivileged user namespaces) and enabled elsewhere.
+
+## Running this bundle's own engine tests
+
+Tests that call qpdf, ExifTool or LibreOffice look for the binaries the same way as the bundle
+(see [engines](engines.md#auto-detection)) and are skipped when a binary is not found. Set
+`CHROME_PDF_ENGINE_TESTS=1` to make a missing binary a failure instead of a skip (the CI does this). Set
+`QPDF_PATH`, `EXIFTOOL_PATH` or `LIBREOFFICE_PATH` if a binary is not on the `PATH`.
+
+```shell
+CHROME_PDF_ENGINE_TESTS=1 ./vendor/bin/phpunit tests/Engine
+```
+
+LibreOffice tests are slow (a few seconds each), because each conversion starts a new `soffice` process.

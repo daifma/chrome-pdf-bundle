@@ -60,7 +60,8 @@ final class QpdfTest extends TestCase
     {
         $files = $this->qpdf->split($this->fixtures.'/five-pages.pdf', 'intervals', '2', false, $this->directory.'/out');
 
-        self::assertSame([$this->directory.'/out/five-pages_1.pdf', $this->directory.'/out/five-pages_2.pdf', $this->directory.'/out/five-pages_3.pdf'], $files);
+        $out = $this->directory.'/out'.\DIRECTORY_SEPARATOR;
+        self::assertSame([$out.'five-pages_1.pdf', $out.'five-pages_2.pdf', $out.'five-pages_3.pdf'], $files);
         self::assertSame([2, 2, 1], array_map($this->qpdf->pageCount(...), $files));
     }
 

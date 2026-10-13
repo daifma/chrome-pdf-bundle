@@ -29,6 +29,13 @@ $config = $config
     ->ignoreErrorsOnPackage('league/flysystem', [
         ErrorType::DEV_DEPENDENCY_IN_PROD,
     ])
+    // Optional: async generation is only registered when Messenger and HttpClient are installed.
+    ->ignoreErrorsOnPackage('symfony/messenger', [
+        ErrorType::DEV_DEPENDENCY_IN_PROD,
+    ])
+    ->ignoreErrorsOnPackage('symfony/http-client', [
+        ErrorType::DEV_DEPENDENCY_IN_PROD,
+    ])
     ->ignoreErrorsOnPackage('symfony/routing', [
         ErrorType::DEV_DEPENDENCY_IN_PROD,
     ])
