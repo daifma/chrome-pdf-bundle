@@ -15,4 +15,5 @@ trait ChromiumScreenshotTrait
     use Chromium\ScreenshotPagePropertiesTrait;
     use Chromium\WaitBeforeRenderingTrait;
     use DownloadFromTrait;
+    use WebhookTrait;
 }

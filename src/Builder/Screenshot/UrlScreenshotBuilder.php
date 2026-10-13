@@ -7,11 +7,9 @@ use Daif\ChromePdfBundle\Builder\AbstractBuilder;
 use Daif\ChromePdfBundle\Builder\AssetPathResolverInterface;
 use Daif\ChromePdfBundle\Builder\Attributes\WithBuilderConfiguration;
 use Daif\ChromePdfBundle\Builder\Behaviors\ChromiumScreenshotTrait;
-use Daif\ChromePdfBundle\Builder\Behaviors\Dependencies\RequestContextAwareTrait;
+use Daif\ChromePdfBundle\Builder\Behaviors\Dependencies\UrlGeneratorAwareTrait;
 use Daif\ChromePdfBundle\Builder\BuilderAssetInterface;
 use Daif\ChromePdfBundle\Exception\MissingRequiredFieldException;
-use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
-use Symfony\Contracts\Service\Attribute\SubscribedService;
 
 /**
  * Convert a URL into screenshot using Chrome.
@@ -20,7 +18,7 @@ use Symfony\Contracts\Service\Attribute\SubscribedService;
 final class UrlScreenshotBuilder extends AbstractBuilder implements BuilderAssetInterface, AssetPathResolverInterface
 {
     use ChromiumScreenshotTrait;
-    use RequestContextAwareTrait;
+    use UrlGeneratorAwareTrait;
 
     /**
      * URL of the page you want to convert into a screenshot.
@@ -74,19 +72,6 @@ final class UrlScreenshotBuilder extends AbstractBuilder implements BuilderAsset
         }
     }
 
-    #[SubscribedService('router', nullable: true)]
-    private function getUrlGenerator(): UrlGeneratorInterface
-    {
-        if (
-            !$this->container->has('router')
-            || !($urlGenerator = $this->container->get('router')) instanceof UrlGeneratorInterface
-        ) {
-            throw new \LogicException(\sprintf('UrlGenerator is required to use "%s" method. Try to run "composer require symfony/routing".', __METHOD__));
-        }
-
-        return $urlGenerator;
-    }
-
     private function resolveUrl(): string
     {
         if (null !== $this->getBodyBag()->get('url')) {
@@ -95,18 +80,6 @@ final class UrlScreenshotBuilder extends AbstractBuilder implements BuilderAsset
 
         [$route, $parameters] = $this->getBodyBag()->get('route');
 
-        $urlGenerator = $this->getUrlGenerator();
-        $context = $urlGenerator->getContext();
-        $requestContext = $this->getRequestContext();
-
-        if (null !== $requestContext) {
-            $urlGenerator->setContext($requestContext);
-        }
-
-        try {
-            return $urlGenerator->generate($route, $parameters, UrlGeneratorInterface::ABSOLUTE_URL);
-        } finally {
-            $urlGenerator->setContext($context);
-        }
+        return $this->generateAbsoluteUrl($route, $parameters);
     }
 }

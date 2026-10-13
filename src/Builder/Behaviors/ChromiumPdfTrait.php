@@ -16,4 +16,13 @@ trait ChromiumPdfTrait
     use Chromium\PerformanceModeTrait;
     use Chromium\WaitBeforeRenderingTrait;
     use DownloadFromTrait;
+    use EncryptTrait;
+    use FlattenTrait;
+    use MetadataTrait;
+    use PdfFormatTrait;
+    use RotateTrait;
+    use SplitTrait;
+    use StampTrait;
+    use WatermarkTrait;
+    use WebhookTrait;
 }

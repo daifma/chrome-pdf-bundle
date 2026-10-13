@@ -6,6 +6,7 @@ use Daif\ChromePdfBundle\Builder\Behaviors\Dependencies\AssetBaseDirFormatterAwa
 use Daif\ChromePdfBundle\Builder\Behaviors\Dependencies\TwigAwareTrait;
 use Daif\ChromePdfBundle\Builder\BodyBag;
 use Daif\ChromePdfBundle\Builder\BuilderAssetInterface;
+use Daif\ChromePdfBundle\Builder\ValueObject\FilePart;
 use Daif\ChromePdfBundle\Builder\ValueObject\RenderedPart;
 use Daif\ChromePdfBundle\Enumeration\Part;
 use Daif\ChromePdfBundle\Exception\PartRenderingException;
@@ -114,7 +115,7 @@ trait ContentTrait
             throw new PartRenderingException(\sprintf('Could not render file into PDF part "%s". File located at "%s" is not found.', $part->value, $resolvedPath));
         }
 
-        $this->getBodyBag()->set($part->value, new \SplFileInfo($resolvedPath));
+        $this->getBodyBag()->set($part->value, new FilePart($part, $resolvedPath));
 
         return $this;
     }

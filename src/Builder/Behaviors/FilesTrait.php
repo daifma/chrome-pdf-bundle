@@ -27,10 +27,11 @@ trait FilesTrait
         $files = [];
         foreach ($paths as $path) {
             $path = (string) $path;
-            $info = new \SplFileInfo($this->getAssetBaseDirFormatter()->resolve($path));
-            ValidatorFactory::filesExtension([$info], $this->getAllowedFilesExtensions());
+            $resolved = $this->getAssetBaseDirFormatter()->resolve($path);
+            ValidatorFactory::filesExtension([new \SplFileInfo($resolved)], $this->getAllowedFilesExtensions());
 
-            $files[$path] = $info;
+            // The resolved path (not an SplFileInfo) keeps the body bag serializable.
+            $files[$path] = $resolved;
         }
 
         if ([] === $files) {
