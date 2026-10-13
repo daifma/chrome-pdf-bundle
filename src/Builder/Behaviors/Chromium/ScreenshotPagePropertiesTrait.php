@@ -4,8 +4,10 @@ namespace Daif\ChromePdfBundle\Builder\Behaviors\Chromium;
 
 use Daif\ChromePdfBundle\Builder\Attributes\WithConfigurationNode;
 use Daif\ChromePdfBundle\Builder\BodyBag;
+use Daif\ChromePdfBundle\Builder\Util\ValidatorFactory;
 use Daif\ChromePdfBundle\Enumeration\ScreenshotFormat;
 use Daif\ChromePdfBundle\NodeBuilder\BooleanNodeBuilder;
+use Daif\ChromePdfBundle\NodeBuilder\FloatNodeBuilder;
 use Daif\ChromePdfBundle\NodeBuilder\IntegerNodeBuilder;
 use Daif\ChromePdfBundle\NodeBuilder\NativeEnumNodeBuilder;
 
@@ -24,26 +26,29 @@ trait ScreenshotPagePropertiesTrait
     #[WithConfigurationNode(new IntegerNodeBuilder('width'))]
     public function width(int $width): static
     {
+        ValidatorFactory::positive('width', $width);
         $this->getBodyBag()->set('width', $width);
 
         return $this;
     }
 
     /**
-     * The device screen width in pixels. (Default 600).
+     * The device screen height in pixels. (Default 600).
      *
      * @example height(600)
      */
     #[WithConfigurationNode(new IntegerNodeBuilder('height'))]
     public function height(int $height): static
     {
+        ValidatorFactory::positive('height', $height);
         $this->getBodyBag()->set('height', $height);
 
         return $this;
     }
 
     /**
-     * Define whether to clip the screenshot according to the device dimensions. (Default false).
+     * Define whether to clip the screenshot according to the device dimensions (viewport only).
+     * When false, the full page is captured. (Default false).
      *
      * @example clip() // is same as `->clip(true)`
      */
@@ -51,6 +56,20 @@ trait ScreenshotPagePropertiesTrait
     public function clip(bool $bool = true): static
     {
         $this->getBodyBag()->set('clip', $bool);
+
+        return $this;
+    }
+
+    /**
+     * The device scale ratio, controlling the screenshot pixel density. Set to 2 for retina-quality output. (Default 1).
+     *
+     * @example deviceScaleFactor(2)
+     */
+    #[WithConfigurationNode(new FloatNodeBuilder('device_scale_factor'))]
+    public function deviceScaleFactor(float $deviceScaleFactor): static
+    {
+        ValidatorFactory::positive('deviceScaleFactor', $deviceScaleFactor);
+        $this->getBodyBag()->set('deviceScaleFactor', $deviceScaleFactor);
 
         return $this;
     }
@@ -69,7 +88,7 @@ trait ScreenshotPagePropertiesTrait
     }
 
     /**
-     * The compression quality from range 0 to 100 (jpeg only). (default 100).
+     * The compression quality from range 0 to 100 (jpeg and webp only, ignored for png). (default: Chrome's encoder default).
      *
      * @param int<0, 100> $quality
      *
@@ -78,6 +97,7 @@ trait ScreenshotPagePropertiesTrait
     #[WithConfigurationNode(new IntegerNodeBuilder('quality', min: 0, max: 100))]
     public function quality(int $quality): static
     {
+        ValidatorFactory::quality($quality);
         $this->getBodyBag()->set('quality', $quality);
 
         return $this;
@@ -107,5 +127,15 @@ trait ScreenshotPagePropertiesTrait
         $this->getBodyBag()->set('optimizeForSpeed', $bool);
 
         return $this;
+    }
+
+    /**
+     * MIME type of the generated screenshot, used for the Content-Type of the response.
+     */
+    protected function getContentType(): string
+    {
+        $format = $this->getBodyBag()->get('format');
+
+        return ($format instanceof ScreenshotFormat ? $format : ScreenshotFormat::Png)->mimeType();
     }
 }

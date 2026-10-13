@@ -22,8 +22,9 @@ trait FilesTrait
      *
      * @example files('document.pdf', '/absolute/path/document_2.pdf')
      */
-    public function files(string|\Stringable ...$paths): self
+    public function files(string|\Stringable ...$paths): static
     {
+        $files = [];
         foreach ($paths as $path) {
             $path = (string) $path;
             $info = new \SplFileInfo($this->getAssetBaseDirFormatter()->resolve($path));
@@ -32,7 +33,11 @@ trait FilesTrait
             $files[$path] = $info;
         }
 
-        $this->getBodyBag()->set('files', $files ?? null);
+        if ([] === $files) {
+            $this->getBodyBag()->unset('files');
+        } else {
+            $this->getBodyBag()->set('files', $files);
+        }
 
         return $this;
     }

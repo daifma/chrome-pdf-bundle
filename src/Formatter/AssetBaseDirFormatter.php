@@ -23,25 +23,33 @@ final class AssetBaseDirFormatter
         private readonly string $projectDir,
         array $baseDir,
     ) {
-        $this->baseDir = array_map(static fn ($value) => rtrim($value, '/\\'), $baseDir);
+        $this->baseDir = array_map(static fn ($value) => rtrim(str_replace('\\', '/', $value), '/'), $baseDir);
     }
 
+    /**
+     * Resolves a path against the configured asset directories.
+     *
+     * Absolute paths (POSIX "/x" or Windows "C:\x", "C:/x", "\\server\share") and URLs are returned untouched.
+     * Relative paths may use either "/" or "\" as separator, the resolved path is canonicalized with "/".
+     *
+     * @throws FileNotFoundException if the relative path cannot be found in any asset directory
+     */
     public function resolve(string $path): string
     {
         if (\array_key_exists($path, $this->resolvedPathsCache)) {
             return $this->resolvedPathsCache[$path];
         }
 
-        if (Path::isAbsolute($path) || filter_var($path, \FILTER_VALIDATE_URL)) {
+        if (PathHelper::isAbsolute($path) || filter_var($path, \FILTER_VALIDATE_URL)) {
             return $this->resolvedPathsCache[$path] = $path;
         }
 
         foreach ($this->baseDir as $baseDir) {
-            if (!Path::isAbsolute($baseDir)) {
+            if (!PathHelper::isAbsolute($baseDir)) {
                 $baseDir = Path::join($this->projectDir, $baseDir);
             }
 
-            $filename = Path::join($baseDir, $path);
+            $filename = Path::join($baseDir, str_replace('\\', '/', $path));
             if (!file_exists($filename)) {
                 continue;
             }

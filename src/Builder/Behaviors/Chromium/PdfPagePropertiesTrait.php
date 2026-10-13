@@ -8,6 +8,7 @@ use Daif\ChromePdfBundle\Builder\Util\ValidatorFactory;
 use Daif\ChromePdfBundle\Enumeration\PaperSize;
 use Daif\ChromePdfBundle\Enumeration\PaperSizeInterface;
 use Daif\ChromePdfBundle\Enumeration\Unit;
+use Daif\ChromePdfBundle\Exception\InvalidBuilderConfiguration;
 use Daif\ChromePdfBundle\NodeBuilder\BooleanNodeBuilder;
 use Daif\ChromePdfBundle\NodeBuilder\FloatNodeBuilder;
 use Daif\ChromePdfBundle\NodeBuilder\NativeEnumNodeBuilder;
@@ -44,7 +45,7 @@ trait PdfPagePropertiesTrait
     #[WithConfigurationNode(new UnitNodeBuilder('paper_width'))]
     public function paperWidth(float $width, Unit $unit = Unit::Inches): static
     {
-        $this->getBodyBag()->set('paperWidth', $width.$unit->value);
+        $this->setLengthValue('paperWidth', $width, $unit, true);
 
         return $this;
     }
@@ -57,7 +58,7 @@ trait PdfPagePropertiesTrait
     #[WithConfigurationNode(new UnitNodeBuilder('paper_height'))]
     public function paperHeight(float $height, Unit $unit = Unit::Inches): static
     {
-        $this->getBodyBag()->set('paperHeight', $height.$unit->value);
+        $this->setLengthValue('paperHeight', $height, $unit, true);
 
         return $this;
     }
@@ -111,7 +112,7 @@ trait PdfPagePropertiesTrait
     #[WithConfigurationNode(new UnitNodeBuilder('margin_top'))]
     public function marginTop(float $top, Unit $unit = Unit::Inches): static
     {
-        $this->getBodyBag()->set('marginTop', $top.$unit->value);
+        $this->setLengthValue('marginTop', $top, $unit, false);
 
         return $this;
     }
@@ -124,7 +125,7 @@ trait PdfPagePropertiesTrait
     #[WithConfigurationNode(new UnitNodeBuilder('margin_bottom'))]
     public function marginBottom(float $bottom, Unit $unit = Unit::Inches): static
     {
-        $this->getBodyBag()->set('marginBottom', $bottom.$unit->value);
+        $this->setLengthValue('marginBottom', $bottom, $unit, false);
 
         return $this;
     }
@@ -137,7 +138,7 @@ trait PdfPagePropertiesTrait
     #[WithConfigurationNode(new UnitNodeBuilder('margin_left'))]
     public function marginLeft(float $left, Unit $unit = Unit::Inches): static
     {
-        $this->getBodyBag()->set('marginLeft', $left.$unit->value);
+        $this->setLengthValue('marginLeft', $left, $unit, false);
 
         return $this;
     }
@@ -150,7 +151,7 @@ trait PdfPagePropertiesTrait
     #[WithConfigurationNode(new UnitNodeBuilder('margin_right'))]
     public function marginRight(float $right, Unit $unit = Unit::Inches): static
     {
-        $this->getBodyBag()->set('marginRight', $right.$unit->value);
+        $this->setLengthValue('marginRight', $right, $unit, false);
 
         return $this;
     }
@@ -210,7 +211,8 @@ trait PdfPagePropertiesTrait
     }
 
     /**
-     * Hide the default white background and allow generating PDFs with transparency.
+     * Hide the default white background and allow generating PDFs with transparency
+     * (Chrome's default background color is made transparent; combine with printBackground() to keep CSS backgrounds).
      *
      * @example omitBackground() // is same as `->omitBackground(true)`
      */
@@ -236,13 +238,14 @@ trait PdfPagePropertiesTrait
     }
 
     /**
-     * The scale of the page rendering (e.g., 1.0).
+     * The scale of the page rendering, between 0.1 and 2 (e.g., 1.0). This is a factor, not a length: no unit applies.
      *
      * @example scale(2.5)
      */
     #[WithConfigurationNode(new FloatNodeBuilder('scale'))]
     public function scale(float $scale): static
     {
+        ValidatorFactory::scale($scale);
         $this->getBodyBag()->set('scale', $scale);
 
         return $this;
@@ -253,7 +256,7 @@ trait PdfPagePropertiesTrait
      *
      * @example nativePageRanges('1-5')
      */
-    #[WithConfigurationNode(new ScalarNodeBuilder('native_page_ranges'))]
+    #[WithConfigurationNode(new ScalarNodeBuilder('native_page_ranges', restrictTo: 'string'))]
     public function nativePageRanges(string|null $ranges = null): static
     {
         if (!$ranges) {
@@ -277,5 +280,16 @@ trait PdfPagePropertiesTrait
         $this->getBodyBag()->set('generateTaggedPdf', $bool);
 
         return $this;
+    }
+
+    /**
+     * @throws InvalidBuilderConfiguration
+     */
+    private function setLengthValue(string $key, float $value, Unit $unit, bool $strictlyPositive): void
+    {
+        ValidatorFactory::positive($key, $value, $strictlyPositive);
+
+        // Stored with its unit (e.g. "21cm"), converted into inches by AbstractBuilder::collectPdfOptions().
+        $this->getBodyBag()->set($key, $value.$unit->value);
     }
 }

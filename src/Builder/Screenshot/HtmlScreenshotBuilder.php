@@ -4,6 +4,7 @@ namespace Daif\ChromePdfBundle\Builder\Screenshot;
 
 use Daif\ChromePdfBundle\Browser\BrowserInterface;
 use Daif\ChromePdfBundle\Builder\AbstractBuilder;
+use Daif\ChromePdfBundle\Builder\AssetPathResolverInterface;
 use Daif\ChromePdfBundle\Builder\Attributes\WithBuilderConfiguration;
 use Daif\ChromePdfBundle\Builder\Behaviors\ChromiumScreenshotTrait;
 use Daif\ChromePdfBundle\Builder\BuilderAssetInterface;
@@ -14,7 +15,7 @@ use Daif\ChromePdfBundle\Exception\MissingRequiredFieldException;
  * Convert HTML or Twig files into screenshot using Chrome.
  */
 #[WithBuilderConfiguration(type: 'screenshot', name: 'html')]
-final class HtmlScreenshotBuilder extends AbstractBuilder implements BuilderAssetInterface
+final class HtmlScreenshotBuilder extends AbstractBuilder implements BuilderAssetInterface, AssetPathResolverInterface
 {
     use ChromiumScreenshotTrait;
 
