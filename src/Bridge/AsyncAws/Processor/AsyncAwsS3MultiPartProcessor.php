@@ -25,7 +25,7 @@ final class AsyncAwsS3MultiPartProcessor implements ProcessorInterface
     public function __invoke(string|null $fileName): \Generator
     {
         if (null === $fileName) {
-            $fileName = uniqid('chrome_pdf_', true);
+            $fileName = 'chrome_pdf_'.bin2hex(random_bytes(8));
             $this->logger?->debug('{processor}: no filename given. Content will be dumped to "{file}".', ['processor' => self::class, 'file' => $fileName]);
         }
 
@@ -51,7 +51,7 @@ final class AsyncAwsS3MultiPartProcessor implements ProcessorInterface
 
                 $currentChunk .= $chunk->getContent();
 
-                if (mb_strlen($currentChunk, '8bit') < self::MIN_PART_SIZE) {
+                if (\strlen($currentChunk) < self::MIN_PART_SIZE) {
                     continue;
                 }
 
@@ -74,7 +74,8 @@ final class AsyncAwsS3MultiPartProcessor implements ProcessorInterface
                 $currentChunk = '';
             } while (!$chunk->isLast());
 
-            if ('' !== $currentChunk) {
+            // S3 requires at least one part: an empty document is uploaded as a single empty part.
+            if ('' !== $currentChunk || [] === $uploads) {
                 ++$partNumber;
 
                 $this->logger?->debug('{processor}: last chunk reached. Uploading leftover part {upload_part_number}', ['processor' => self::class, 'upload_part_number' => $partNumber]);

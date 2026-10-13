@@ -8,8 +8,9 @@ use Daif\ChromePdfBundle\Builder\Pdf\MarkdownPdfBuilder;
 use Daif\ChromePdfBundle\Builder\Pdf\UrlPdfBuilder;
 use Daif\ChromePdfBundle\ChromePdfInterface;
 use Daif\ChromePdfBundle\Debug\Builder\TraceableBuilder;
+use Symfony\Contracts\Service\ResetInterface;
 
-final class TraceableChromePdf implements ChromePdfInterface
+final class TraceableChromePdf implements ChromePdfInterface, ResetInterface
 {
     /**
      * @var list<array{string, TraceableBuilder}>
@@ -91,5 +92,10 @@ final class TraceableChromePdf implements ChromePdfInterface
     public function getBuilders(): array
     {
         return $this->builders;
+    }
+
+    public function reset(): void
+    {
+        $this->builders = [];
     }
 }

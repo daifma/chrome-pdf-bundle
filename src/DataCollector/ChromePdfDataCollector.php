@@ -18,8 +18,8 @@ use Symfony\Component\VarDumper\Cloner\Data;
 final class ChromePdfDataCollector extends DataCollector implements LateDataCollectorInterface
 {
     /**
-     * @param ServiceLocator<TraceableBuilder|BuilderInterface> $builders
-     * @param array<mixed>                                      $defaultOptions
+     * @param ServiceLocator<TraceableBuilder|BuilderInterface>  $builders
+     * @param array<string, array<string, array<string, mixed>>> $defaultOptions keyed by type ("pdf"/"screenshot") then builder name
      */
     public function __construct(
         private readonly TraceableChromePdf $traceableChromePdf,
@@ -35,6 +35,7 @@ final class ChromePdfDataCollector extends DataCollector implements LateDataColl
         $this->data['request_total_time'] = 0;
         $this->data['request_count'] = 0;
         $this->data['builders'] = [];
+        $this->data['files'] = [];
 
         foreach ($this->builders->getProvidedServices() as $id => $type) {
             $builder = $this->builders->get($id);
@@ -43,15 +44,21 @@ final class ChromePdfDataCollector extends DataCollector implements LateDataColl
                 $builder = $builder->getInner();
             }
 
-            if (str_starts_with($id, '.daif_chrome_pdf.pdf_builder.')) {
-                [$id] = sscanf($id, '.daif_chrome_pdf.pdf_builder.%s');
-            } elseif (str_starts_with($id, '.daif_chrome_pdf.screenshot_builder.')) {
-                [$id] = sscanf($id, '.daif_chrome_pdf.screenshot_builder.%s') ?? [$id];
+            $builderType = null;
+            $name = $id;
+            foreach (['pdf' => '.daif_chrome_pdf.pdf_builder.', 'screenshot' => '.daif_chrome_pdf.screenshot_builder.'] as $candidateType => $prefix) {
+                if (str_starts_with($id, $prefix)) {
+                    $builderType = $candidateType;
+                    $name = substr($id, \strlen($prefix));
+                    break;
+                }
             }
 
-            $this->data['builders'][$id] = [
+            $key = null === $builderType ? $id : $builderType.'.'.$name;
+
+            $this->data['builders'][$key] = [
                 'class' => $builder::class,
-                'default_options' => $this->defaultOptions[$id] ?? [],
+                'default_options' => null === $builderType ? [] : ($this->defaultOptions[$builderType][$name] ?? []),
             ];
         }
     }
@@ -59,6 +66,13 @@ final class ChromePdfDataCollector extends DataCollector implements LateDataColl
     public function getName(): string
     {
         return 'daif_chrome_pdf';
+    }
+
+    public function reset(): void
+    {
+        parent::reset();
+        $this->traceableChromePdf->reset();
+        $this->traceableChromeScreenshot->reset();
     }
 
     public function lateCollect(): void
@@ -72,14 +86,17 @@ final class ChromePdfDataCollector extends DataCollector implements LateDataColl
      */
     private function lateCollectFiles(array $builders, string $type): void
     {
+        $prefix = '.daif_chrome_pdf.'.$type.'_builder.';
         foreach ($builders as [$id, $builder]) {
+            // get() may be called with the full service id instead of the short builder name.
+            $name = str_starts_with($id, $prefix) ? substr($id, \strlen($prefix)) : $id;
             foreach ($builder->getFiles() as $request) {
                 $this->data['request_total_time'] += $request['time'];
                 $this->data['request_total_size'] += $request['size'] ?? 0;
                 $this->data['files'][] = [
                     'builderClass' => $builder->getInner()::class,
                     'configuration' => [
-                        'default_options' => $this->cloneVar($this->defaultOptions[$type][$id] ?? []),
+                        'default_options' => $this->cloneVar($this->defaultOptions[$type][$name] ?? []),
                     ],
                     'type' => $type,
                     'request_type' => $request['type'],
@@ -87,6 +104,7 @@ final class ChromePdfDataCollector extends DataCollector implements LateDataColl
                     'memory' => $request['memory'],
                     'size' => $this->formatSize($request['size'] ?? 0),
                     'fileName' => $request['fileName'],
+                    'contentType' => $request['contentType'] ?? null,
                     'calls' => array_map(function (array $call): array {
                         $args = array_map(static function (mixed $arg): mixed {
                             if (\is_array($arg)) {
@@ -111,7 +129,7 @@ final class ChromePdfDataCollector extends DataCollector implements LateDataColl
     /**
      * @param int<0, max> $size
      *
-     * @return array{float, string}
+     * @return array{int|float, string}
      */
     private function formatSize(int $size): array
     {
@@ -136,7 +154,7 @@ final class ChromePdfDataCollector extends DataCollector implements LateDataColl
     }
 
     /**
-     * @return array{float, string}
+     * @return array{int|float, string}
      */
     public function getRequestTotalSize(): array
     {
@@ -150,8 +168,9 @@ final class ChromePdfDataCollector extends DataCollector implements LateDataColl
      *      time: float,
      *      memory: int,
      *      size: int<0, max>|null,
-     *      fileName: string,
-     *      configuration: array<string, array<mixed, mixed>>,
+     *      fileName: string|null,
+     *      contentType: string|null,
+     *      configuration: array{default_options: Data},
      *      calls: list<array{
      *          method: string,
      *          stub: Data,

@@ -2,6 +2,8 @@
 
 namespace Daif\ChromePdfBundle\Tests\Processor;
 
+use Daif\ChromePdfBundle\Browser\StringChunk;
+use Daif\ChromePdfBundle\Exception\ProcessorException;
 use Daif\ChromePdfBundle\Processor\FileProcessor;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Filesystem\Filesystem;
@@ -9,7 +11,7 @@ use Symfony\Component\HttpClient\Chunk\DataChunk;
 use Symfony\Component\HttpClient\Chunk\FirstChunk;
 use Symfony\Component\HttpClient\Chunk\LastChunk;
 
-class FileProcessorTest extends TestCase
+final class FileProcessorTest extends TestCase
 {
     public function testProcess(): void
     {
@@ -23,6 +25,24 @@ class FileProcessorTest extends TestCase
         $return = $generator->getReturn();
 
         self::assertInstanceOf(\SplFileInfo::class, $return); // @phpstan-ignore staticMethod.alreadyNarrowedType
-        self::assertSame('abc', (string) $return->openFile());
+        // Read without SplFileObject: an open handle would block unlink() on Windows.
+        self::assertSame('abc', file_get_contents($return->getPathname()));
+        unlink($return->getPathname());
+    }
+
+    public function testFileNameCannotEscapeTheDirectory(): void
+    {
+        $directory = sys_get_temp_dir().\DIRECTORY_SEPARATOR.'chrome_pdf_file_processor_'.bin2hex(random_bytes(4));
+        $generator = (new FileProcessor(new Filesystem(), $directory))('..'.\DIRECTORY_SEPARATOR.'escaped.pdf');
+
+        try {
+            $this->expectException(ProcessorException::class);
+            $this->expectExceptionMessage('points outside of the');
+
+            $generator->send(new StringChunk('%PDF-1.7'));
+        } finally {
+            self::assertFileDoesNotExist(\dirname($directory).\DIRECTORY_SEPARATOR.'escaped.pdf');
+            (new Filesystem())->remove($directory);
+        }
     }
 }

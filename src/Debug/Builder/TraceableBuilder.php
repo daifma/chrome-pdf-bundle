@@ -10,7 +10,7 @@ use Symfony\Component\Stopwatch\Stopwatch;
 final class TraceableBuilder implements BuilderFileInterface
 {
     /**
-     * @var list<array{'type': 'sync', 'time': float|null, 'memory': int|null, 'size': int<0, max>|null, 'fileName': string|null, 'calls': list<array{'method': string, 'class': class-string<BuilderInterface>, 'arguments': array<mixed>}>}>
+     * @var list<array{'type': 'sync', 'time': float|null, 'memory': int|null, 'size': int<0, max>|null, 'fileName': string|null, 'contentType': string|null, 'calls': list<array{'method': string, 'class': class-string<BuilderInterface>, 'arguments': array<mixed>}>}>
      */
     private array $files = [];
 
@@ -35,8 +35,11 @@ final class TraceableBuilder implements BuilderFileInterface
         ++self::$count;
 
         $swEvent = $this->stopwatch?->start($name, 'chrome_pdf.generate');
-        $response = $this->inner->generate();
-        $swEvent?->stop();
+        try {
+            $response = $this->inner->generate();
+        } finally {
+            $swEvent?->stop();
+        }
 
         $this->files[] = [
             'type' => 'sync',
@@ -45,6 +48,7 @@ final class TraceableBuilder implements BuilderFileInterface
             'memory' => $swEvent?->getMemory(),
             'size' => $response->getContentLength(),
             'fileName' => $response->getFileName(),
+            'contentType' => $response->getContentType(),
         ];
 
         ++$this->totalGenerated;
@@ -73,7 +77,7 @@ final class TraceableBuilder implements BuilderFileInterface
     }
 
     /**
-     * @return list<array{'type': 'sync', 'time': float|null, 'memory': int|null, 'size': int<0, max>|null, 'fileName': string|null, 'calls': list<array{'class': class-string<BuilderInterface>, 'method': string, 'arguments': array<mixed>}>}>
+     * @return list<array{'type': 'sync', 'time': float|null, 'memory': int|null, 'size': int<0, max>|null, 'fileName': string|null, 'contentType': string|null, 'calls': list<array{'class': class-string<BuilderInterface>, 'method': string, 'arguments': array<mixed>}>}>
      */
     public function getFiles(): array
     {

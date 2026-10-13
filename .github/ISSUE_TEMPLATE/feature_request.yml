@@ -1,0 +1,43 @@
+name: Feature request
+description: Suggest a new builder option, processor or other feature.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This bundle only uses Chromium features (print to PDF, screenshots). Features that need a PDF engine (merge, split, encrypt, PDF/A, Office conversion) are out of scope: see the [feature parity table](https://github.com/daifma/chrome-pdf-bundle#feature-parity-with-sensiolabsgotenberg-bundle).
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and why is it hard or impossible today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How should it work? A code sample of the builder call or configuration you would like to write helps.
+      render: php
+    validations:
+      required: false
+
+  - type: input
+    id: gotenberg
+    attributes:
+      label: Matching GotenbergBundle feature
+      description: If this exists in sensiolabs/gotenberg-bundle, name the method or option.
+      placeholder: ex. waitForSelector()
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds you use today, or other approaches.
+    validations:
+      required: false

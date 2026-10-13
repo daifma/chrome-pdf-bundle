@@ -11,7 +11,7 @@ You can add assets in several ways, available for most builders.
 > By default, the assets are fetched from the `assets` folder of your application.
 > If your asset files are in another folder, you can override the
 > default value of `assets_directory` in your configuration file
-> `config/daif_chrome_pdf.yaml`.
+> `config/packages/daif_chrome_pdf.yaml`.
 >
 > The asset path resolution depends on certain criteria:
 > - If an absolute path is provided in `{{ chrome_pdf_asset() }}`, `assets()`
@@ -43,6 +43,27 @@ You can add assets in several ways, available for most builders.
 > $builder->addAsset('./also/relative/img.png'); // (string) '%kernel.project_dir%/assets/some/relative/path/also/relative/img.png'
 > ```
 > </details>
+
+## How assets reach Chrome
+
+Every conversion gets a private temporary directory (inside `temp_dir`) that holds `index.html` and the assets.
+Chrome opens `index.html` from there, and is only allowed to read `file://` URLs **inside** that directory (see
+[security](security.md#local-files-file)). So:
+
+- Every asset is copied next to `index.html` under its **base name**. `img/logo.png` becomes `logo.png`, which is
+  what `chrome_pdf_asset('img/logo.png')` outputs.
+- Two **different** files with the same base name (for example `a/logo.png` and `b/logo.png`) throw a
+  `BrowserException` instead of silently overwriting each other. Rename one of them. Adding the same file twice is
+  fine.
+- Absolute `file:///...` URLs in your HTML that point outside the directory are blocked. Use `chrome_pdf_asset()` or
+  `assets()` instead.
+- Remote files that Chrome must not (or cannot) fetch itself can be downloaded by PHP with
+  [`downloadFrom()`](pdf/HtmlPdfBuilder.md#downloadfrom). They land in the same directory.
+
+> [!NOTE]
+> **Header and footer templates** cannot load files at all (a Chrome limitation). When `chrome_pdf_asset()` or
+> `chrome_pdf_font_face()` is used inside a header or footer, the bundle inlines the file as a base64 `data:` URI.
+> See [header-footer](pdf/header-footer.md#things-to-know).
 
 ## Twig file
 

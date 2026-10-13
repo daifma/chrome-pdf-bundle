@@ -17,8 +17,14 @@ $config = $config
     ->ignoreErrorsOnPackage('async-aws/s3', [
         ErrorType::DEV_DEPENDENCY_IN_PROD,
     ])
-    ->ignoreErrorsOnExtension('ext-mbstring', [
-        ErrorType::DEV_DEPENDENCY_IN_PROD,
+    // Not referenced by our code: required at runtime by chrome-php's websocket client, declared explicitly
+    // so a missing extension fails at install time (notably on Windows where it is often disabled).
+    ->ignoreErrorsOnExtension('ext-sockets', [
+        ErrorType::UNUSED_DEPENDENCY,
+    ])
+    // Local adapter shipped with league/flysystem 3, only used by tests.
+    ->ignoreErrorsOnPackage('league/flysystem-local', [
+        ErrorType::SHADOW_DEPENDENCY,
     ])
     ->ignoreErrorsOnPackage('league/flysystem', [
         ErrorType::DEV_DEPENDENCY_IN_PROD,

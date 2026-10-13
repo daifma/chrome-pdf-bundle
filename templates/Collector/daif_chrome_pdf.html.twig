@@ -105,7 +105,10 @@
                     </span>
                 </td>
                 <td class="font-normal">
-                    {{ file.fileName }}
+                    {{ file.fileName ?? '(no file name)' }}
+                    {% if file.contentType|default(null) %}
+                        <span class="text-muted">({{ file.contentType }})</span>
+                    {% endif %}
                     <div>
                         <a href="#" class="sf-toggle link-inverse" data-toggle-selector="#configuration-{{ index }}"
                            data-toggle-alt-content="Hide configuration">View configuration</a>
@@ -181,7 +184,7 @@
                     </div>
                 </td>
             </tr>
-        <tbody>
+        </tbody>
     </table>
     {% endfor %}
 {% endblock %}

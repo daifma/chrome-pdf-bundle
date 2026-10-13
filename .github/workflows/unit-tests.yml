@@ -1,35 +1,39 @@
-name: 'Unit Tests'
+name: 'Tests'
 
 on:
   push:
     branches: ['main']
   pull_request:
-    branches: ['main']
 
 permissions:
   contents: 'read'
 
+concurrency:
+  group: '${{ github.workflow }}-${{ github.ref }}'
+  cancel-in-progress: true
+
 jobs:
-  test:
-    name: 'PHP ${{ matrix.php }} / Symfony ${{ matrix.symfony }}'
+  linux:
+    name: 'Linux / PHP ${{ matrix.php }} / Symfony ${{ matrix.symfony }} (${{ matrix.dependencies }})'
     runs-on: 'ubuntu-latest'
     strategy:
       fail-fast: false
       matrix:
-        include:
+        php: ['8.1', '8.2', '8.3', '8.4']
+        symfony: ['6.4.*', '7.*']
+        dependencies: ['lowest', 'highest']
+        exclude:
+          # Symfony 7 requires PHP >= 8.2
           - php: '8.1'
-            symfony: '6.4.*'
-          - php: '8.2'
-            symfony: '6.4.*'
-          - php: '8.2'
-            symfony: '7.0.*'
-          - php: '8.3'
-            symfony: '7.1.*'
-          - php: '8.3'
-            symfony: '7.2.*'
+            symfony: '7.*'
+        include:
+          # Symfony 8 requires PHP >= 8.4
           - php: '8.4'
-            symfony: '7.2.*'
-
+            symfony: '8.*'
+            dependencies: 'highest'
+    env:
+      # Browser tests must run (and fail without a browser) instead of being skipped.
+      CHROME_PDF_BROWSER_TESTS: '1'
     steps:
       - uses: 'actions/checkout@v4'
 
@@ -37,16 +41,74 @@ jobs:
         uses: 'shivammathur/setup-php@v2'
         with:
           php-version: '${{ matrix.php }}'
+          extensions: 'sockets, mbstring, zip'
           coverage: 'none'
+          tools: 'flex'
 
-      - name: 'Configure Symfony version'
-        run: |
-          composer config extra.symfony.require "${{ matrix.symfony }}"
+      - name: 'Setup Chrome'
+        id: 'setup-chrome'
+        uses: 'browser-actions/setup-chrome@v1'
+        with:
+          chrome-version: 'stable'
+          install-dependencies: true
 
       - name: 'Install dependencies'
-        run: |
-          composer update --prefer-dist --no-interaction --no-progress
+        uses: 'ramsey/composer-install@v3'
+        env:
+          # Read by symfony/flex to restrict every symfony/* package to the tested version.
+          SYMFONY_REQUIRE: '${{ matrix.symfony }}'
+        with:
+          dependency-versions: '${{ matrix.dependencies }}'
+          composer-options: '--prefer-dist'
 
-      - name: 'Run tests'
-        run: |
-          vendor/bin/phpunit
+      - name: 'Run PHPUnit'
+        env:
+          CHROME_PATH: '${{ steps.setup-chrome.outputs.chrome-path }}'
+        run: 'php vendor/bin/phpunit'
+
+  windows:
+    name: 'Windows / PHP ${{ matrix.php }} / Symfony ${{ matrix.symfony }}'
+    runs-on: 'windows-latest'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - php: '8.1'
+            symfony: '6.4.*'
+          - php: '8.4'
+            symfony: '7.*'
+    env:
+      CHROME_PDF_BROWSER_TESTS: '1'
+    steps:
+      # Defensive: .gitattributes already forces LF, this also covers files without attributes.
+      - name: 'Disable CRLF conversion'
+        run: 'git config --global core.autocrlf false'
+
+      - uses: 'actions/checkout@v4'
+
+      - name: 'Setup PHP'
+        uses: 'shivammathur/setup-php@v2'
+        with:
+          php-version: '${{ matrix.php }}'
+          extensions: 'sockets, mbstring, zip, fileinfo'
+          coverage: 'none'
+          tools: 'flex'
+
+      - name: 'Setup Chrome'
+        id: 'setup-chrome'
+        uses: 'browser-actions/setup-chrome@v1'
+        with:
+          chrome-version: 'stable'
+
+      - name: 'Install dependencies'
+        uses: 'ramsey/composer-install@v3'
+        env:
+          SYMFONY_REQUIRE: '${{ matrix.symfony }}'
+        with:
+          dependency-versions: 'highest'
+          composer-options: '--prefer-dist'
+
+      - name: 'Run PHPUnit'
+        env:
+          CHROME_PATH: '${{ steps.setup-chrome.outputs.chrome-path }}'
+        run: 'php vendor/bin/phpunit'

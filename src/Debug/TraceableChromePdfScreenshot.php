@@ -8,8 +8,9 @@ use Daif\ChromePdfBundle\Builder\Screenshot\MarkdownScreenshotBuilder;
 use Daif\ChromePdfBundle\Builder\Screenshot\UrlScreenshotBuilder;
 use Daif\ChromePdfBundle\ChromeScreenshotInterface;
 use Daif\ChromePdfBundle\Debug\Builder\TraceableBuilder;
+use Symfony\Contracts\Service\ResetInterface;
 
-final class TraceableChromePdfScreenshot implements ChromeScreenshotInterface
+final class TraceableChromePdfScreenshot implements ChromeScreenshotInterface, ResetInterface
 {
     /**
      * @var list<array{string, TraceableBuilder}>
@@ -91,5 +92,10 @@ final class TraceableChromePdfScreenshot implements ChromeScreenshotInterface
     public function getBuilders(): array
     {
         return $this->builders;
+    }
+
+    public function reset(): void
+    {
+        $this->builders = [];
     }
 }

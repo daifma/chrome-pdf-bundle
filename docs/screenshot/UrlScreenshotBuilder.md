@@ -1,6 +1,6 @@
 # UrlScreenshotBuilder
 
-Generate a screenshot from a URL.
+Capture an image of a URL or of a Symfony route.
 
 ## Basic usage
 
@@ -8,6 +8,7 @@ Generate a screenshot from a URL.
 namespace App\Controller;
 
 use Daif\ChromePdfBundle\ChromeScreenshotInterface;
+use Symfony\Component\HttpFoundation\Response;
 
 class YourController
 {
@@ -32,6 +33,10 @@ $chromeScreenshot->url()
 ;
 ```
 
+The same rules as the [UrlPdfBuilder](../pdf/UrlPdfBuilder.md) apply: the URL is loaded by Chrome in a separate
+request, only `http` and `https` targets are accepted, and `allow_list` / `deny_list` are enforced (see
+[security](../security.md#request-filtering)).
+
 ## Available methods
 
 All methods from [HtmlScreenshotBuilder](./HtmlScreenshotBuilder.md) are available, plus:
@@ -39,18 +44,23 @@ All methods from [HtmlScreenshotBuilder](./HtmlScreenshotBuilder.md) are availab
 | Method | Description |
 |---|---|
 | `url(string $url)` | URL of the page to capture |
-| `route(string $name, array $parameters)` | Symfony route to capture |
+| `route(string $name, array $parameters = [])` | Symfony route to capture |
 
 ## Examples
 
-### Screenshot of an external page
+### Above-the-fold capture of an external page
 
 ```php
+use Daif\ChromePdfBundle\Enumeration\ScreenshotFormat;
+
 $chromeScreenshot->url()
     ->url('https://example.com')
     ->width(1280)
     ->height(800)
-    ->format('png')
+    ->clip()                         // viewport only; default is full page
+    ->deviceScaleFactor(2.0)
+    ->format(ScreenshotFormat::Png)
+    ->failOnHttpStatusCodes([499, 599])
     ->generate()
     ->stream()
 ;
