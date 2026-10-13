@@ -5,6 +5,7 @@ namespace Daif\ChromePdfBundle\DependencyInjection\CompilerPass;
 use Daif\ChromePdfBundle\Builder\BuilderInterface;
 use Daif\ChromePdfBundle\Debug\Builder\TraceableBuilder;
 use Daif\ChromePdfBundle\DependencyInjection\DaifChromePdfExtension;
+use Daif\ChromePdfBundle\Exception\LogicException;
 use Symfony\Component\DependencyInjection\Compiler\CompilerPassInterface;
 use Symfony\Component\DependencyInjection\Compiler\ServiceLocatorTagPass;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
@@ -18,6 +19,7 @@ final class ChromePdfPass implements CompilerPassInterface
         /** @var DaifChromePdfExtension $extension */
         $extension = $container->getExtension('daif_chrome_pdf');
         $builderPerType = [];
+        $builderPerClass = [];
         foreach ($container->findTaggedServiceIds('daif_chrome_pdf.builder') as $serviceId => $tags) {
             $serviceDefinition = $container->getDefinition($serviceId);
             $serviceDefinition
@@ -31,7 +33,10 @@ final class ChromePdfPass implements CompilerPassInterface
 
             $builderPerType[$type] ??= [];
             $builderPerType[$type][$serviceId] = new Reference($serviceId);
+            $builderPerClass[$class] ??= new Reference($serviceId);
         }
+
+        $this->processAsync($container, $builderPerClass);
 
         if ($container->hasDefinition('daif_chrome_pdf.pdf')) {
             $container->getDefinition('daif_chrome_pdf.pdf')
@@ -60,5 +65,26 @@ final class ChromePdfPass implements CompilerPassInterface
                 ])
             ;
         }
+    }
+
+    /**
+     * @param array<class-string<BuilderInterface>, Reference> $builderPerClass
+     */
+    private function processAsync(ContainerBuilder $container, array $builderPerClass): void
+    {
+        if (!$container->hasDefinition('daif_chrome_pdf.messenger.generate_document_handler')) {
+            return;
+        }
+
+        $bus = (string) $container->getDefinition('daif_chrome_pdf.async_generator')->getArgument('$bus');
+        foreach ([$bus => 'framework.messenger', 'http_client' => 'framework.http_client'] as $id => $configKey) {
+            if (!$container->has($id)) {
+                throw new LogicException(\sprintf('"daif_chrome_pdf.async.enabled" requires the "%s" service: enable "%s" in the framework configuration.', $id, $configKey));
+            }
+        }
+
+        $container->getDefinition('daif_chrome_pdf.messenger.generate_document_handler')
+            ->setArgument('$builders', ServiceLocatorTagPass::register($container, $builderPerClass))
+        ;
     }
 }

@@ -35,6 +35,36 @@ final class RequestFilterTest extends TestCase
         self::assertSame($allowed, (new RequestFilter($directory))->isAllowed($url));
     }
 
+    public function testLocalFileRoots(): void
+    {
+        $base = sys_get_temp_dir().\DIRECTORY_SEPARATOR.'chrome_pdf_roots_'.bin2hex(random_bytes(4));
+        mkdir($base.'/public/css', 0o777, true);
+        mkdir($base.'/private');
+        file_put_contents($base.'/public/css/app.css', 'body{}');
+        file_put_contents($base.'/private/secret.txt', 'secret');
+        $toUrl = static fn (string $path): string => 'file://'.('\\' === \DIRECTORY_SEPARATOR ? '/' : '').str_replace('\\', '/', $path);
+
+        try {
+            $filter = new RequestFilter(null, [], [], [$base.'/public', $base.'/missing']);
+
+            self::assertTrue($filter->isAllowed($toUrl($base.'/public/css/app.css')));
+            self::assertFalse($filter->isAllowed($toUrl($base.'/private/secret.txt')));
+            self::assertFalse($filter->isAllowed($toUrl($base.'/public/../private/secret.txt')), 'traversal');
+            self::assertFalse($filter->isAllowed($toUrl($base.'/public/css/missing.css')), 'files that do not exist are refused');
+
+            if (\function_exists('symlink') && '\\' !== \DIRECTORY_SEPARATOR && @symlink($base.'/private/secret.txt', $base.'/public/link.txt')) {
+                self::assertFalse($filter->isAllowed($toUrl($base.'/public/link.txt')), 'a symlink pointing outside the root');
+            }
+        } finally {
+            foreach (['/public/link.txt', '/public/css/app.css', '/private/secret.txt'] as $file) {
+                @unlink($base.$file);
+            }
+            foreach (['/public/css', '/public', '/private', ''] as $dir) {
+                @rmdir($base.$dir);
+            }
+        }
+    }
+
     public function testFileUrlsAreBlockedWithoutDirectory(): void
     {
         $filter = new RequestFilter();

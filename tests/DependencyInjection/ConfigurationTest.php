@@ -40,6 +40,13 @@ final class ConfigurationTest extends TestCase
         self::assertSame([], $config['browser_options']);
         self::assertTrue($config['controller_listener']);
         self::assertArrayNotHasKey('request_context', $config);
+        self::assertNull($config['qpdf_binary']);
+        self::assertNull($config['exiftool_binary']);
+        self::assertNull($config['libreoffice_binary']);
+        self::assertSame(120000, $config['engine_timeout']);
+        self::assertSame([], $config['webhook']);
+        self::assertSame(['enabled' => false, 'bus' => 'messenger.default_bus'], $config['async']);
+        self::assertArrayNotHasKey('webhook', $config['default_options']);
     }
 
     public function testDefaultOptionsAreGeneratedForEveryRegisteredBuilder(): void
@@ -47,11 +54,53 @@ final class ConfigurationTest extends TestCase
         $config = self::process([]);
 
         self::assertIsArray($config['default_options']);
-        self::assertSame(['pdf', 'screenshot'], array_keys($config['default_options']));
-        foreach (['pdf', 'screenshot'] as $type) {
-            self::assertIsArray($config['default_options'][$type]);
-            self::assertEqualsCanonicalizing(['html', 'url', 'markdown'], array_keys($config['default_options'][$type]));
-        }
+        self::assertEqualsCanonicalizing(['pdf', 'screenshot'], array_keys($config['default_options']));
+        self::assertIsArray($config['default_options']['pdf']);
+        self::assertEqualsCanonicalizing(
+            ['html', 'url', 'markdown', 'office', 'merge', 'convert', 'split', 'flatten', 'encrypt', 'embed', 'watermark', 'stamp', 'rotate'],
+            array_keys($config['default_options']['pdf']),
+        );
+        self::assertIsArray($config['default_options']['screenshot']);
+        self::assertEqualsCanonicalizing(['html', 'url', 'markdown'], array_keys($config['default_options']['screenshot']));
+    }
+
+    public function testEngineConfiguration(): void
+    {
+        $config = self::process([[
+            'qpdf_binary' => '/usr/bin/qpdf',
+            'exiftool_binary' => 'C:\Strawberry\perl\bin\exiftool',
+            'libreoffice_binary' => '/Applications/LibreOffice.app/Contents/MacOS/soffice',
+            'engine_timeout' => 300000,
+        ]]);
+
+        self::assertSame('/usr/bin/qpdf', $config['qpdf_binary']);
+        self::assertSame('C:\Strawberry\perl\bin\exiftool', $config['exiftool_binary']);
+        self::assertSame('/Applications/LibreOffice.app/Contents/MacOS/soffice', $config['libreoffice_binary']);
+        self::assertSame(300000, $config['engine_timeout']);
+    }
+
+    public function testNamedWebhookConfiguration(): void
+    {
+        $config = self::process([[
+            'webhook' => [
+                'default' => [
+                    'success' => ['url' => 'https://example.com/success', 'method' => 'PUT'],
+                    'error' => ['route' => 'webhook_error'],
+                    'events' => ['route' => ['webhook_events', ['id' => 1]]],
+                    'extra_http_headers' => ['Authorization' => 'Bearer token'],
+                ],
+            ],
+            'default_options' => ['webhook' => 'default'],
+        ]]);
+
+        self::assertSame('default', $config['default_options']['webhook']);
+        self::assertIsArray($config['webhook']);
+        self::assertSame('https://example.com/success', $config['webhook']['default']['success']['url']);
+        self::assertSame('PUT', $config['webhook']['default']['success']['method']);
+        self::assertSame(['webhook_error', []], $config['webhook']['default']['error']['route']);
+        self::assertNull($config['webhook']['default']['error']['method']);
+        self::assertSame(['webhook_events', ['id' => 1]], $config['webhook']['default']['events']['route']);
+        self::assertSame(['Authorization' => 'Bearer token'], $config['webhook']['default']['extra_http_headers']);
     }
 
     public function testCustomConfiguration(): void
@@ -106,6 +155,11 @@ final class ConfigurationTest extends TestCase
         yield 'deny_list with broken pattern' => [['deny_list' => ['#^https://(unclosed#']], 'not a valid PCRE regular expression'];
         yield 'deny_list with non string' => [['deny_list' => [['nested']]], 'daif_chrome_pdf.deny_list'];
         yield 'unknown key' => [['http_client' => 'http_client'], 'Unrecognized option "http_client"'];
+        yield 'engine_timeout too low' => [['engine_timeout' => 999], 'daif_chrome_pdf.engine_timeout'];
+        yield 'webhook without success' => [['webhook' => ['foo' => ['error' => ['url' => 'https://example.com']]]], 'At least a "success" key is required'];
+        yield 'webhook with url and route' => [['webhook' => ['foo' => ['success' => ['url' => 'https://example.com', 'route' => 'foo']]]], 'either a "url" or a "route"'];
+        yield 'webhook with invalid method' => [['webhook' => ['foo' => ['success' => ['url' => 'https://example.com', 'method' => 'GET']]]], 'daif_chrome_pdf.webhook.foo.success.method'];
+        yield 'webhook with invalid route' => [['webhook' => ['foo' => ['success' => ['route' => [1, 2]]]]], 'The "route" parameter must be a string'];
     }
 
     /**

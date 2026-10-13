@@ -8,6 +8,9 @@ use Daif\ChromePdfBundle\ChromeScreenshot;
 use Daif\ChromePdfBundle\Debug\Builder\TraceableBuilder;
 use Daif\ChromePdfBundle\DependencyInjection\CompilerPass\ChromePdfPass;
 use Daif\ChromePdfBundle\DependencyInjection\DaifChromePdfExtension;
+use Daif\ChromePdfBundle\Exception\LogicException;
+use Daif\ChromePdfBundle\Messenger\AsyncGenerator;
+use Daif\ChromePdfBundle\Messenger\GenerateDocumentHandler;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Definition;
@@ -91,6 +94,41 @@ final class ChromePdfPassTest extends TestCase
         self::assertSame(['.daif_chrome_pdf.pdf_builder.html', null, 0], $decorator->getDecoratedService());
         self::assertFalse($decorator->isShared());
         self::assertFalse($container->getDefinition('.daif_chrome_pdf.pdf_builder.html')->isShared());
+    }
+
+    public function testItGivesTheAsyncHandlerABuilderLocatorKeyedByClass(): void
+    {
+        $container = $this->getContainerBuilder();
+        $container->registerExtension($this->getExtension());
+        $this->registerAsyncServices($container);
+        $container->setDefinition('messenger.default_bus', new Definition(\stdClass::class));
+        $container->setDefinition('http_client', new Definition(\stdClass::class));
+
+        (new ChromePdfPass())->process($container);
+
+        $locator = $container->getDefinition('daif_chrome_pdf.messenger.generate_document_handler')->getArgument('$builders');
+        self::assertInstanceOf(Reference::class, $locator);
+        self::assertSame([self::BUILDER], array_keys($this->getLocatorServices($container, $locator)));
+        self::assertTrue($container->hasDefinition('daif_chrome_pdf.async_generator'));
+    }
+
+    public function testItFailsWhenAsyncIsEnabledWithoutMessenger(): void
+    {
+        $container = $this->getContainerBuilder();
+        $container->registerExtension($this->getExtension());
+        $this->registerAsyncServices($container);
+        $container->setDefinition('http_client', new Definition(\stdClass::class));
+
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('requires the "messenger.default_bus" service');
+
+        (new ChromePdfPass())->process($container);
+    }
+
+    private function registerAsyncServices(ContainerBuilder $container): void
+    {
+        $container->setDefinition('daif_chrome_pdf.async_generator', (new Definition(AsyncGenerator::class))->setArguments(['$bus' => new Reference('messenger.default_bus')]));
+        $container->setDefinition('daif_chrome_pdf.messenger.generate_document_handler', (new Definition(GenerateDocumentHandler::class))->setArguments(['$builders' => null]));
     }
 
     /**

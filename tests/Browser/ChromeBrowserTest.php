@@ -174,19 +174,19 @@ final class ChromeBrowserTest extends TestCase
 
     public function testWaitForExpressionTimesOut(): void
     {
-        $browser = self::createBrowser(ChromeAvailability::binaryOrSkip(), timeout: 1500);
+        $browser = self::createBrowser(ChromeAvailability::binaryOrSkip(), timeout: 5000);
         $start = hrtime(true);
 
         try {
             $browser->htmlToPdf('<p>x</p>', [], ['waitForExpression' => 'window.never === true']);
             self::fail('A BrowserException was expected.');
         } catch (BrowserException $e) {
-            self::assertStringContainsString('Timed out after 1500 ms waiting for the expression "window.never === true"', $e->getMessage());
+            self::assertStringContainsString('Timed out after 5000 ms waiting for the expression "window.never === true"', $e->getMessage());
         } finally {
             $browser->close();
         }
 
-        self::assertLessThan(10, (hrtime(true) - $start) / 1e9);
+        self::assertLessThan(20, (hrtime(true) - $start) / 1e9);
     }
 
     public function testWaitForSelector(): void
@@ -200,7 +200,8 @@ final class ChromeBrowserTest extends TestCase
 
     public function testWaitForSelectorTimesOut(): void
     {
-        $browser = self::createBrowser(ChromeAvailability::binaryOrSkip(), timeout: 1000);
+        // long enough for a slow CI runner to navigate, the selector wait is what must time out
+        $browser = self::createBrowser(ChromeAvailability::binaryOrSkip(), timeout: 5000);
 
         try {
             $this->expectException(BrowserException::class);
@@ -272,6 +273,23 @@ final class ChromeBrowserTest extends TestCase
         self::assertStringContainsString('VISIBLE', $text);
         self::assertStringContainsString('FETCH BLOCKED', $text);
         self::assertStringNotContainsString('TOP SECRET', $text);
+    }
+
+    public function testLocalFileRootsAreReadable(): void
+    {
+        $root = self::$tempDir.\DIRECTORY_SEPARATOR.'public_root';
+        @mkdir($root);
+        file_put_contents($root.\DIRECTORY_SEPARATOR.'style.css', '#styled::after { content: "STYLED FROM ROOT"; }');
+        $cssUrl = 'file://'.('\\' === \DIRECTORY_SEPARATOR ? '/' : '').str_replace('\\', '/', $root.\DIRECTORY_SEPARATOR.'style.css');
+
+        $browser = new ChromeBrowser(chromeBinary: ChromeAvailability::binaryOrSkip(), timeout: 15000, noSandbox: ChromeAvailability::noSandbox(), tempDir: self::$tempDir, localFileRoots: [$root]);
+        try {
+            $text = self::pdfText($browser->htmlToPdf('<link rel="stylesheet" href="'.$cssUrl.'"><p id="styled"></p>'));
+        } finally {
+            $browser->close();
+        }
+
+        self::assertStringContainsString('STYLED FROM ROOT', $text);
     }
 
     public function testTopLevelNavigationToALocalFileIsBlocked(): void

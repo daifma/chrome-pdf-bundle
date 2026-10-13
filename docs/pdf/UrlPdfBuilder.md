@@ -57,7 +57,8 @@ The same rules apply to every redirect and sub-resource the page loads.
 ## Available methods
 
 All methods from [HtmlPdfBuilder](./HtmlPdfBuilder.md) are available (page properties, header/footer, waiting,
-emulation, cookies and headers, error handling, `downloadFrom`), plus:
+emulation, cookies and headers, error handling, `downloadFrom`, [post-processing](post-processing.md) except
+`embedFiles()`, webhooks and `generateAsync()`), plus:
 
 | Method | Description |
 |---|---|

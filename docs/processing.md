@@ -341,52 +341,16 @@ class CustomProcessor implements ProcessorInterface
 }
 ```
 
-## Asynchronous generation (instead of Gotenberg webhooks)
+## Asynchronous generation
 
-GotenbergBundle can ask Gotenberg to call a webhook when the file is ready (`generateAsync()`). This bundle renders
-in-process, so there is no webhook. To generate documents in the background, use
-[Symfony Messenger](https://symfony.com/doc/current/messenger.html):
+To generate files in a Messenger worker and send them to a webhook URL (`generateAsync()`, like GotenbergBundle; optional
+and disabled by default), or
+to generate them in the background with your own message and a processor, see [async](async.md).
 
-```php
-// src/Message/GenerateInvoicePdf.php
-final class GenerateInvoicePdf
-{
-    public function __construct(public readonly int $invoiceId) {}
-}
+Processors are not carried over by `generateAsync()`: the file is sent to the webhook instead.
 
-// src/MessageHandler/GenerateInvoicePdfHandler.php
-use Daif\ChromePdfBundle\ChromePdfInterface;
-use Daif\ChromePdfBundle\Processor\FileProcessor;
-use Symfony\Component\DependencyInjection\Attribute\Autowire;
-use Symfony\Component\Filesystem\Filesystem;
-use Symfony\Component\Messenger\Attribute\AsMessageHandler;
+## ZIP results
 
-#[AsMessageHandler]
-final class GenerateInvoicePdfHandler
-{
-    public function __construct(
-        private readonly ChromePdfInterface $chromePdf,
-        #[Autowire('%kernel.project_dir%/var/invoices')]
-        private readonly string $storage,
-    ) {}
-
-    public function __invoke(GenerateInvoicePdf $message): void
-    {
-        $this->chromePdf->html()
-            ->content('invoice.html.twig', ['id' => $message->invoiceId])
-            ->fileName('invoice-'.$message->invoiceId)
-            ->processor(new FileProcessor(new Filesystem(), $this->storage))
-            ->generate()
-            ->process()
-        ;
-        // then notify the user, dispatch another message, etc.
-    }
-}
-```
-
-Notes for workers:
-
-- The Chrome process is reused between messages and restarted automatically if it crashed. Tabs are closed after
-  each conversion, so long-running consumers don't leak memory. You can still use `--memory-limit` / `--time-limit`.
-- `->route()` has no current request in a worker: set `request_context.base_uri`.
-- The worker's OS user runs Chrome, see [security](security.md#run-chrome-as-a-dedicated-user).
+When a builder produces several files (a split without `splitUnify()`, `office()` with several files and no
+`merge()`, a file builder given several PDFs), the result is one ZIP archive. Processors receive the ZIP like any
+other file, with the `.zip` file name. See [post-processing](pdf/post-processing.md#output-one-pdf-or-a-zip).

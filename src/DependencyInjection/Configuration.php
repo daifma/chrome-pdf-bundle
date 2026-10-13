@@ -32,9 +32,10 @@ class Configuration implements ConfigurationInterface
                     ->defaultValue(['%kernel.project_dir%/assets'])
                     ->beforeNormalization()->castToArray()->end()
                 ->end()
-                ->scalarNode('chrome_binary')
+                ->variableNode('chrome_binary')
                     ->info('Path to the Chrome/Chromium/Edge binary (e.g. "%env(CHROME_PATH)%"). If null, auto-detection is used.')
                     ->defaultNull()
+                    ->beforeNormalization()->ifString()->then(static fn (string $v): string|null => '' === $v ? null : $v)->end()
                 ->end()
                 ->integerNode('timeout')
                     ->info('Timeout in milliseconds applied to navigation, waits, printing and screenshots.')
@@ -49,12 +50,39 @@ class Configuration implements ConfigurationInterface
                     ->info('Ignores TLS certificate errors when loading URLs and resources. Security sensitive.')
                     ->defaultFalse()
                 ->end()
-                ->scalarNode('temp_dir')
+                ->variableNode('temp_dir')
                     ->info('Directory where conversion temporary files are written. If null, sys_get_temp_dir() is used.')
                     ->defaultNull()
+                    ->beforeNormalization()->ifString()->then(static fn (string $v): string|null => '' === $v ? null : $v)->end()
+                ->end()
+                ->variableNode('qpdf_binary')
+                    ->info('Path to the qpdf binary (e.g. "%env(QPDF_PATH)%"), used to merge, split, rotate, flatten, encrypt, embed, stamp and watermark PDFs. If null, auto-detection is used.')
+                    ->defaultNull()
+                    ->beforeNormalization()->ifString()->then(static fn (string $v): string|null => '' === $v ? null : $v)->end()
+                ->end()
+                ->variableNode('exiftool_binary')
+                    ->info('Path to the exiftool binary (e.g. "%env(EXIFTOOL_PATH)%"), used to write PDF metadata. If null, auto-detection is used.')
+                    ->defaultNull()
+                    ->beforeNormalization()->ifString()->then(static fn (string $v): string|null => '' === $v ? null : $v)->end()
+                ->end()
+                ->variableNode('libreoffice_binary')
+                    ->info('Path to the LibreOffice "soffice" binary (e.g. "%env(LIBREOFFICE_PATH)%"), used to convert office documents and to produce PDF/A and PDF/UA. If null, auto-detection is used.')
+                    ->defaultNull()
+                    ->beforeNormalization()->ifString()->then(static fn (string $v): string|null => '' === $v ? null : $v)->end()
+                ->end()
+                ->integerNode('engine_timeout')
+                    ->info('Timeout in milliseconds of each qpdf, exiftool and LibreOffice call.')
+                    ->min(1000)
+                    ->defaultValue(120000)
                 ->end()
                 ->append($this->addPatternListNode('allow_list', 'PCRE patterns (with delimiters, e.g. "#^https://intranet\.example\.com/#"). When not empty, every http(s) request made by Chrome must match one of them.'))
                 ->append($this->addPatternListNode('deny_list', 'PCRE patterns (with delimiters). Any http(s) request made by Chrome matching one of them is blocked.'))
+                ->arrayNode('local_file_roots')
+                    ->info('Directories whose files HTML conversions may load through file:// URLs (e.g. "%kernel.project_dir%/public"), in addition to the conversion temporary directory. Empty by default: keep it limited to public assets.')
+                    ->beforeNormalization()->castToArray()->end()
+                    ->scalarPrototype()->end()
+                    ->defaultValue([])
+                ->end()
                 ->arrayNode('browser_options')
                     ->info('Raw options passed to HeadlessChromium BrowserFactory::createBrowser(), merged last.')
                     ->normalizeKeys(false)
@@ -73,6 +101,18 @@ class Configuration implements ConfigurationInterface
                     ->defaultTrue()
                     ->info('Enables the listener on kernel.view to stream ChromePdfFileResult object.')
                 ->end()
+                ->arrayNode('async')
+                    ->info('Asynchronous generation with generateAsync(): a Messenger worker generates the file and sends it to the webhook URL. Requires symfony/messenger and symfony/http-client.')
+                    ->canBeEnabled()
+                    ->children()
+                        ->scalarNode('bus')
+                            ->info('Service id of the Messenger bus the generation messages are dispatched on.')
+                            ->defaultValue('messenger.default_bus')
+                            ->cannotBeEmpty()
+                        ->end()
+                    ->end()
+                ->end()
+                ->append($this->addNamedWebhookDefinition())
                 ->append($this->addDefaultOptionsNode())
             ->end()
         ;
@@ -125,6 +165,13 @@ class Configuration implements ConfigurationInterface
             ->addDefaultsIfNotSet()
         ;
 
+        $webhookNode = (new TreeBuilder('webhook', 'scalar'))
+            ->getRootNode()
+            ->info('Webhook configuration name used by generateAsync() when the builder does not define one.')
+        ;
+
+        $defaultOptionsTreeBuilder->getRootNode()->append($webhookNode);
+
         foreach ($this->builders as $type => $innerBuilders) {
             $typeTreeBuilder = new TreeBuilder($type);
             $typeTreeBuilder->getRootNode()
@@ -147,5 +194,109 @@ class Configuration implements ConfigurationInterface
         }
 
         return $defaultOptionsTreeBuilder->getRootNode();
+    }
+
+    private function addNamedWebhookDefinition(): NodeDefinition
+    {
+        $treeBuilder = new TreeBuilder('webhook');
+
+        return $treeBuilder->getRootNode()
+            ->info('Named webhook configurations, used by generateAsync() through webhookConfiguration($name) or default_options.')
+            ->defaultValue([])
+            ->useAttributeAsKey('name')
+            ->arrayPrototype()
+                ->children()
+                    ->scalarNode('name')
+                        ->validate()
+                            ->ifTrue(static function (mixed $option): bool {
+                                return !\is_string($option);
+                            })
+                            ->thenInvalid('Invalid webhook configuration name %s')
+                        ->end()
+                    ->end()
+                    ->append($this->addWebhookConfigurationNode('success', true))
+                    ->append($this->addWebhookConfigurationNode('error', true))
+                    ->append($this->addWebhookConfigurationNode('events', false))
+                    ->append($this->addExtraHttpHeadersNode())
+                ->end()
+                ->validate()
+                    ->ifTrue(static function (mixed $option): bool {
+                        return !isset($option['success']);
+                    })
+                    ->thenInvalid('Invalid webhook configuration : At least a "success" key is required.')
+                ->end()
+                ->validate()
+                    ->ifTrue(static function (mixed $option): bool {
+                        foreach (['success', 'error', 'events'] as $type) {
+                            if (isset($option[$type]) && isset($option[$type]['url']) === isset($option[$type]['route'])) {
+                                return true;
+                            }
+                        }
+
+                        return false;
+                    })
+                    ->thenInvalid('Invalid webhook configuration : Each of "success", "error" and "events" requires either a "url" or a "route" key.')
+                ->end()
+            ->end()
+        ;
+    }
+
+    private function addWebhookConfigurationNode(string $name, bool $withMethod): NodeDefinition
+    {
+        $treeBuilder = new TreeBuilder($name);
+
+        $children = $treeBuilder->getRootNode()
+            ->children()
+                ->scalarNode('url')
+                    ->info('The URL to call.')
+                    ->example('https://webhook.site/#!/view/{some-token}')
+                ->end()
+                ->variableNode('route')
+                    ->info('Route configuration.')
+                    ->beforeNormalization()
+                        ->ifArray()
+                            ->then(static function (array $v): array {
+                                return [$v[0] ?? null, $v[1] ?? []];
+                            })
+                        ->ifString()
+                            ->then(static function (string $v): array {
+                                return [$v, []];
+                            })
+                    ->end()
+                    ->validate()
+                        ->ifTrue(static function ($v): bool {
+                            return !\is_array($v) || \count($v) !== 2 || !\is_string($v[0]) || !\is_array($v[1]);
+                        })
+                        ->thenInvalid('The "route" parameter must be a string or an array containing a string and an array.')
+                    ->end()
+                    ->example("['my_route', ['param1' => 'value1', 'param2' => 'value2']]")
+                ->end()
+        ;
+
+        if ($withMethod) {
+            $children
+                ->enumNode('method')
+                    ->info('HTTP method to use on that endpoint.')
+                    ->values(['POST', 'PUT', 'PATCH'])
+                    ->defaultNull()
+                ->end()
+            ;
+        }
+
+        return $children->end();
+    }
+
+    private function addExtraHttpHeadersNode(): NodeDefinition
+    {
+        $treeBuilder = new TreeBuilder('extra_http_headers');
+
+        return $treeBuilder->getRootNode()
+            ->info('HTTP headers sent with the webhook requests (success and error).')
+            ->defaultValue([])
+            ->normalizeKeys(false)
+            ->useAttributeAsKey('name')
+            ->variablePrototype()
+            ->end()
+        ;
     }
 }

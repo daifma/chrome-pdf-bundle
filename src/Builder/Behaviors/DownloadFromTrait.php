@@ -30,8 +30,9 @@ trait DownloadFromTrait
     abstract protected function getBodyBag(): BodyBag;
 
     /**
-     * Downloads remote files (in parallel) right before the generation and adds them as assets (markdown files are
-     * added to the markdown files of the Markdown builders). Each file is stored under the filename given by the
+     * Downloads remote files (in parallel) right before the generation and adds them as assets (files the builder
+     * accepts, like markdown files for the Markdown builders or PDF files for the PDF engines builders, are added to
+     * its files). Each file is stored under the filename given by the
      * Content-Disposition header of the response or, if missing, the basename of the URL: reference it by that name.
      * Requires symfony/http-client. Downloaded files are deleted once the generation is over.
      *
@@ -148,8 +149,8 @@ trait DownloadFromTrait
             }
 
             $assets = $this->getBodyBag()->get('assets', []);
-            $markdownFiles = $this->getBodyBag()->get('files');
-            $acceptsMarkdown = method_exists($this, 'getAllowedFilesExtensions') && \in_array('md', $this->getAllowedFilesExtensions(), true);
+            $downloadedFiles = $this->getBodyBag()->get('files');
+            $allowedFilesExtensions = method_exists($this, 'getAllowedFilesExtensions') ? $this->getAllowedFilesExtensions() : [];
             $names = [];
             $index = 0;
 
@@ -180,13 +181,12 @@ trait DownloadFromTrait
                     throw new DownloadFromException(\sprintf('Could not download "%s": %s', $url, $e->getMessage()), previous: $e);
                 }
 
-                $fileInfo = new \SplFileInfo($target);
-                if ($acceptsMarkdown && 'md' === PathHelper::extension($filename)) {
-                    $markdownFiles ??= [];
-                    $markdownFiles[$target] = $fileInfo;
+                if (\in_array(PathHelper::extension($filename), $allowedFilesExtensions, true)) {
+                    $downloadedFiles ??= [];
+                    $downloadedFiles[$target] = $target;
                 } else {
                     // Keyed by the temp path so the file is copied under the downloaded filename, not the URL basename.
-                    $assets[$target] = $fileInfo;
+                    $assets[$target] = $target;
                 }
 
                 $logger?->debug('Downloaded "{url}" as "{filename}".', ['url' => $url, 'filename' => $filename]);
@@ -195,8 +195,8 @@ trait DownloadFromTrait
             if ([] !== $assets) {
                 $this->getBodyBag()->set('assets', $assets);
             }
-            if (null !== $markdownFiles) {
-                $this->getBodyBag()->set('files', $markdownFiles);
+            if (null !== $downloadedFiles) {
+                $this->getBodyBag()->set('files', $downloadedFiles);
             }
         } catch (\Throwable $e) {
             $cleanup();

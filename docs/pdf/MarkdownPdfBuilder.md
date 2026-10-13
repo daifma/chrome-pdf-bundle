@@ -93,7 +93,8 @@ return $chromePdf->markdown()
 ## Available methods
 
 The methods from [HtmlPdfBuilder](./HtmlPdfBuilder.md) are available (page properties, header/footer, assets,
-waiting, emulation, cookies, error handling), **except** `content()` / `contentFile()` / `contentRaw()`, which are
+waiting, emulation, cookies, error handling, [post-processing](post-processing.md) except `embedFiles()`, webhooks
+and `generateAsync()`), **except** `content()` / `contentFile()` / `contentRaw()`, which are
 replaced by:
 
 | Method | Description |

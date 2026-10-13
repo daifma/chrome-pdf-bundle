@@ -93,3 +93,40 @@ old header, update it.
 - **Cookies**: `Symfony\Component\HttpFoundation\Cookie` objects are now accepted (they crashed before).
 - **Windows**: the browser is found automatically (including Microsoft Edge), and `ext-sockets` must be enabled in
   `php.ini`. See [docs/chrome-installation.md](docs/chrome-installation.md#windows).
+
+### PDF engines and new dependencies
+
+This release adds the GotenbergBundle features that need a PDF engine or LibreOffice (merge, split, Office
+conversion, PDF/A, metadata, watermarks, encryption, ...), using local qpdf, ExifTool and LibreOffice. Existing
+Chromium conversions are not affected: no external tool is called unless you use one of the new builders or options.
+
+- **`symfony/process` and `ext-zip` are now required.** Composer installs symfony/process. Enable the `zip`
+  extension in `php.ini` (`extension=zip`; on Debian/Ubuntu `apt-get install php8.x-zip`). It is only used when a
+  builder returns several files as a ZIP archive.
+- **Install the tools you need** (none are required): see [docs/engines.md](docs/engines.md). If a tool is missing,
+  only the features that use it fail, with a `Daif\ChromePdfBundle\Exception\EngineException`.
+- **Messenger instead of hand-written handlers.** If you followed the old "Asynchronous generation" section and
+  wrote your own message and handler, it keeps working. To get the GotenbergBundle behaviour (send the file to a
+  webhook), opt in: install `symfony/messenger` and `symfony/http-client`, set `async.enabled: true` and use
+  `generateAsync()`, see
+  [docs/async.md](docs/async.md).
+
+### ZIP results
+
+`generate()` still returns a `ChromePdfFileResult`, but it now contains a ZIP archive (`application/zip`, file name
+`<fileName>.zip`) when several files are produced: a split without `splitUnify()`, `office()` with several files
+and without `merge()`, or a file builder given several PDFs. Code that assumes the result is always a PDF should
+check `getContentType()` when it uses these options.
+
+### Custom builders and body bag readers
+
+This only concerns code that extends the bundle's builders or reads their body bag directly:
+
+- `AbstractBuilder::generate()` now calls a `produce(string $workDir): array` method that returns the list of
+  produced files, then runs the post-processing steps. The default `produce()` calls `executeBrowser()` and writes
+  its result, so a custom Chrome builder that implements `executeBrowser()` keeps working. A builder that does not
+  use Chrome overrides `produce()` instead.
+- Body bag values are serializable, so that builders can be sent through Messenger: `contentFile()`, `headerFile()`,
+  `footerFile()` and `wrapperFile()` store a `Daif\ChromePdfBundle\Builder\ValueObject\FilePart` (type and path)
+  instead of an `SplFileInfo`, and `files()`, `assets()`, `embedFiles()`, ... store path strings. Code that reads
+  these values from the body bag must be adapted.

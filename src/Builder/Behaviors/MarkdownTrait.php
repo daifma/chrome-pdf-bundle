@@ -95,20 +95,20 @@ trait MarkdownTrait
      */
     protected function buildHtmlFromMarkdown(string $wrapperHtml): string
     {
-        /** @var array<string, \SplFileInfo> $files */
+        /** @var array<string, string> $files */
         $files = $this->getBodyBag()->get('files') ?? [];
 
         // Index files by the path given to files() and by their basename.
         $byPath = [];
         $byBasename = [];
         $ambiguous = [];
-        foreach ($files as $path => $fileInfo) {
-            $byPath[str_replace('\\', '/', (string) $path)] = $fileInfo;
+        foreach ($files as $path => $pathname) {
+            $byPath[str_replace('\\', '/', (string) $path)] = $pathname;
             $basename = PathHelper::basename((string) $path);
-            if (isset($byBasename[$basename]) && $byBasename[$basename]->getPathname() !== $fileInfo->getPathname()) {
+            if (isset($byBasename[$basename]) && $byBasename[$basename] !== $pathname) {
                 $ambiguous[$basename] = true;
             }
-            $byBasename[$basename] = $fileInfo;
+            $byBasename[$basename] = $pathname;
         }
 
         $converter = null;
@@ -126,12 +126,11 @@ trait MarkdownTrait
                     throw new PartRenderingException(\sprintf('The markdown wrapper references "%s" which is ambiguous: several markdown files share that name. Reference it by the path given to files().', $name));
                 }
 
-                $fileInfo = $byPath[$name] ?? $byBasename[$basename] ?? null;
-                if (null === $fileInfo) {
+                $pathname = $byPath[$name] ?? $byBasename[$basename] ?? null;
+                if (null === $pathname) {
                     throw new PartRenderingException(\sprintf('The markdown wrapper references "%s" but no such markdown file was provided. Available files: "%s".', $name, implode('", "', array_keys($byPath))));
                 }
 
-                $pathname = $fileInfo->getPathname();
                 $referenced[$pathname] = true;
 
                 if (!isset($converted[$pathname])) {
@@ -153,8 +152,8 @@ trait MarkdownTrait
             throw new PartRenderingException('Could not inject the markdown files into the wrapper: '.preg_last_error_msg());
         }
 
-        foreach ($files as $path => $fileInfo) {
-            if (!isset($referenced[$fileInfo->getPathname()])) {
+        foreach ($files as $path => $pathname) {
+            if (!isset($referenced[$pathname])) {
                 $this->getLogger()?->debug('Markdown file "{daif_chrome_pdf.markdown_file}" is never referenced by the wrapper with {{ toHTML "..." }}.', [
                     'daif_chrome_pdf.markdown_file' => $path,
                 ]);

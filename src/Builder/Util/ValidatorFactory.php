@@ -182,4 +182,59 @@ class ValidatorFactory
             }
         }
     }
+
+    public static function page(int $value): void
+    {
+        if ($value < 1) {
+            throw new InvalidBuilderConfiguration(\sprintf('Page number must be greater than or equal to 1, %d given.', $value));
+        }
+    }
+
+    public static function zoom(int $value): void
+    {
+        if ($value < 1 || $value > 100) {
+            throw new InvalidBuilderConfiguration(\sprintf('Zoom value "%s" must be between 1 and 100.', $value));
+        }
+    }
+
+    public static function bookmarkLevels(int $value): void
+    {
+        if ($value < -1) {
+            throw new InvalidBuilderConfiguration(\sprintf('BookmarkLevels value "%s" must be greater than or equal to -1.', $value));
+        }
+    }
+
+    public static function hexColor(string $value): void
+    {
+        if (!preg_match('/^#?[0-9a-fA-F]{6}$/', $value)) {
+            throw new InvalidBuilderConfiguration(\sprintf('Invalid color "%s", expected a hexadecimal color like "#FF0000".', $value));
+        }
+    }
+
+    /**
+     * @param array<mixed> $bookmarks
+     */
+    public static function bookmarks(array $bookmarks): void
+    {
+        foreach ($bookmarks as $bookmark) {
+            if (
+                !\is_array($bookmark)
+                || !\is_string($bookmark['title'] ?? null)
+                || !\is_int($bookmark['page'] ?? null)
+                || [] !== array_diff(array_keys($bookmark), ['title', 'page', 'children'])
+            ) {
+                throw new InvalidBuilderConfiguration('Invalid bookmark, expected an array like ["title" => "Introduction", "page" => 1, "children" => [...]].');
+            }
+
+            self::page($bookmark['page']);
+
+            if (\array_key_exists('children', $bookmark)) {
+                if (!\is_array($bookmark['children'])) {
+                    throw new InvalidBuilderConfiguration('The "children" of a bookmark must be a list of bookmarks.');
+                }
+
+                self::bookmarks($bookmark['children']);
+            }
+        }
+    }
 }

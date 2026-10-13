@@ -246,6 +246,8 @@ This bundle was built for these servers:
 - If the server has no Internet access, download the `.deb` / `.rpm` / MSI on a connected machine and copy it over. You
   will need to update it regularly yourself, because Chrome receives security fixes every few weeks.
 - Set `request_context.base_uri` if you use `->route()` from CLI or Messenger workers.
+- For merge, split, Office conversion and the other PDF features, install qpdf, ExifTool or LibreOffice the same way.
+  See [engines](engines.md).
 - Configure `allow_list` / `deny_list` to match your network zones (see [security](security.md)).
 
 ## Running as root requires `no_sandbox`

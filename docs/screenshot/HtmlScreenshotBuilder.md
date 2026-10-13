@@ -112,6 +112,14 @@ $chromeScreenshot->html()
 | `failOnResourceLoadingFailed(bool $bool = true)` | Fail if a sub-resource cannot be loaded |
 | `failOnConsoleExceptions(bool $bool = true)` | Fail on uncaught JS exceptions |
 
+### Async
+
+| Method | Description |
+|---|---|
+| `webhook*()`, `generateAsync()` | Optional, disabled by default: capture in a Messenger worker and send the image to a URL, see [async](../async.md) |
+
+Screenshot builders have no PDF post-processing options.
+
 ## Examples
 
 ### JPEG of the viewport only

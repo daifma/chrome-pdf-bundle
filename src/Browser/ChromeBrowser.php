@@ -23,6 +23,7 @@ final class ChromeBrowser implements BrowserInterface
      * @param int                  $timeout        milliseconds, applies to navigation, waits, printing and screenshots
      * @param list<string>         $allowList      PCRE patterns with delimiters, e.g. "#^https://intranet\.#"
      * @param list<string>         $denyList       PCRE patterns with delimiters
+     * @param list<string>         $localFileRoots directories HTML conversions may read through file:// URLs
      */
     public function __construct(
         private readonly string|null $chromeBinary = null,
@@ -34,6 +35,7 @@ final class ChromeBrowser implements BrowserInterface
         private readonly string|null $tempDir = null,
         private readonly array $allowList = [],
         private readonly array $denyList = [],
+        private readonly array $localFileRoots = [],
     ) {
         if ($timeout <= 0) {
             throw new BrowserException(\sprintf('The timeout must be a positive number of milliseconds, %d given.', $timeout));
@@ -107,7 +109,7 @@ final class ChromeBrowser implements BrowserInterface
             $directory->copyAssets($assets);
             $index = $directory->writeFile('index.html', $html);
 
-            $filter = new RequestFilter($directory->getPath(), $this->allowList, $this->denyList);
+            $filter = new RequestFilter($directory->getPath(), $this->allowList, $this->denyList, $this->localFileRoots);
 
             return $this->render(FileUrl::fromPath($index), $filter, $pageOptions, $viewport, $produce);
         } finally {

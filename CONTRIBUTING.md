@@ -28,6 +28,8 @@ Security issues: please report them privately (see [docs/security.md](docs/secur
 - PHP 8.1+ with `ext-sockets` (and `ext-mbstring` for the dev tools)
 - Composer
 - Chrome, Chromium or Edge for the functional browser tests (set `CHROME_PATH` if it is not auto-detected)
+- qpdf, ExifTool and LibreOffice for the engine tests (optional, see [docs/engines.md](docs/engines.md); set
+  `QPDF_PATH`, `EXIFTOOL_PATH`, `LIBREOFFICE_PATH` if they are not auto-detected)
 
 ### Clone and install
 
@@ -49,9 +51,13 @@ Tests that start a real browser are in the `browser` group. `CHROME_PDF_BROWSER_
 `--exclude-group browser`. Set `CHROME_PATH` if the browser is not auto-detected, and `CHROME_NO_SANDBOX=0|1` to
 override the sandbox setting (disabled by default on Linux for these tests). See [docs/testing.md](docs/testing.md).
 
+Tests that call qpdf, ExifTool or LibreOffice are skipped when the binary is not found, unless
+`CHROME_PDF_ENGINE_TESTS=1` (set by the CI), which turns a missing binary into a failure.
+
 The CI runs the suite on Linux **and Windows**. Avoid anything platform-specific:
 
 - no `posix_*` / `pcntl_*`, no shell commands, no hard-coded `/tmp` or `/` separators;
+- run external tools with `Symfony\Component\Process\Process` and an array of arguments, never a command string;
 - use `Symfony\Component\Filesystem\Path` for path manipulation;
 - build `file://` URLs with the Browser layer helper, never by concatenation.
 

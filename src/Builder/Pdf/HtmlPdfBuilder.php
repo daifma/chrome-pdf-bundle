@@ -7,6 +7,7 @@ use Daif\ChromePdfBundle\Builder\AbstractBuilder;
 use Daif\ChromePdfBundle\Builder\AssetPathResolverInterface;
 use Daif\ChromePdfBundle\Builder\Attributes\WithBuilderConfiguration;
 use Daif\ChromePdfBundle\Builder\Behaviors\ChromiumPdfTrait;
+use Daif\ChromePdfBundle\Builder\Behaviors\EmbedTrait;
 use Daif\ChromePdfBundle\Builder\BuilderAssetInterface;
 use Daif\ChromePdfBundle\Enumeration\Part;
 use Daif\ChromePdfBundle\Exception\MissingRequiredFieldException;
@@ -18,6 +19,7 @@ use Daif\ChromePdfBundle\Exception\MissingRequiredFieldException;
 final class HtmlPdfBuilder extends AbstractBuilder implements BuilderAssetInterface, AssetPathResolverInterface
 {
     use ChromiumPdfTrait;
+    use EmbedTrait;
 
     protected function executeBrowser(BrowserInterface $browser): string
     {
