@@ -22,7 +22,7 @@ final class FlysystemProcessor implements ProcessorInterface
     public function __invoke(string|null $fileName): \Generator
     {
         if (null === $fileName) {
-            $fileName = uniqid('chrome_pdf_', true);
+            $fileName = 'chrome_pdf_'.bin2hex(random_bytes(8));
         }
 
         $tmpfileProcessor = (new TempfileProcessor())($fileName);

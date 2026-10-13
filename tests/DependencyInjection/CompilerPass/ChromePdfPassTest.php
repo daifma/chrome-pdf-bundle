@@ -3,13 +3,17 @@
 namespace Daif\ChromePdfBundle\Tests\DependencyInjection\CompilerPass;
 
 use Daif\ChromePdfBundle\Builder\Pdf\HtmlPdfBuilder;
+use Daif\ChromePdfBundle\ChromePdf;
+use Daif\ChromePdfBundle\ChromeScreenshot;
+use Daif\ChromePdfBundle\Debug\Builder\TraceableBuilder;
 use Daif\ChromePdfBundle\DependencyInjection\CompilerPass\ChromePdfPass;
 use Daif\ChromePdfBundle\DependencyInjection\DaifChromePdfExtension;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Definition;
+use Symfony\Component\DependencyInjection\Reference;
 
-class ChromePdfPassTest extends TestCase
+final class ChromePdfPassTest extends TestCase
 {
     private const BUILDER = HtmlPdfBuilder::class;
 
@@ -54,5 +58,55 @@ class ChromePdfPassTest extends TestCase
         $compilerPass->process($container);
 
         self::assertSame($serviceIds, $container->getServiceIds());
+    }
+
+    public function testItRegistersLocatorsEvenWhenATypeHasNoBuilder(): void
+    {
+        $container = $this->getContainerBuilder();
+        $container->registerExtension($this->getExtension());
+        $container->setDefinition('daif_chrome_pdf.pdf', (new Definition(ChromePdf::class))->setArguments([null]));
+        $container->setDefinition('daif_chrome_pdf.screenshot', (new Definition(ChromeScreenshot::class))->setArguments([null]));
+
+        (new ChromePdfPass())->process($container);
+
+        $pdfLocator = $container->getDefinition('daif_chrome_pdf.pdf')->getArgument(0);
+        $screenshotLocator = $container->getDefinition('daif_chrome_pdf.screenshot')->getArgument(0);
+
+        self::assertInstanceOf(Reference::class, $pdfLocator);
+        self::assertInstanceOf(Reference::class, $screenshotLocator);
+        self::assertSame(['.daif_chrome_pdf.pdf_builder.html'], array_keys($this->getLocatorServices($container, $pdfLocator)));
+        self::assertSame([], $this->getLocatorServices($container, $screenshotLocator));
+    }
+
+    public function testItDecoratesBuildersWhenDataCollectorIsRegistered(): void
+    {
+        $container = $this->getContainerBuilder(true);
+        $container->registerExtension($this->getExtension());
+
+        (new ChromePdfPass())->process($container);
+
+        self::assertTrue($container->hasDefinition('.debug.daif_chrome_pdf.pdf_builder.html'));
+        $decorator = $container->getDefinition('.debug.daif_chrome_pdf.pdf_builder.html');
+        self::assertSame(TraceableBuilder::class, $decorator->getClass());
+        self::assertSame(['.daif_chrome_pdf.pdf_builder.html', null, 0], $decorator->getDecoratedService());
+        self::assertFalse($decorator->isShared());
+        self::assertFalse($container->getDefinition('.daif_chrome_pdf.pdf_builder.html')->isShared());
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function getLocatorServices(ContainerBuilder $container, Reference $reference): array
+    {
+        $locator = $container->getDefinition((string) $reference);
+        $factory = $locator->getFactory();
+        if (\is_array($factory) && $factory[0] instanceof Reference) {
+            $locator = $container->getDefinition((string) $factory[0]);
+        }
+
+        $services = $locator->getArgument(0);
+        self::assertIsArray($services);
+
+        return $services;
     }
 }

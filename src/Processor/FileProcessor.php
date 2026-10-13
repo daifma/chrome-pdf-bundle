@@ -5,6 +5,7 @@ namespace Daif\ChromePdfBundle\Processor;
 use Daif\ChromePdfBundle\Exception\ProcessorException;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\Filesystem\Filesystem;
+use Symfony\Component\Filesystem\Path;
 
 /**
  * @implements ProcessorInterface<\SplFileInfo>
@@ -21,8 +22,13 @@ final class FileProcessor implements ProcessorInterface
     public function __invoke(string|null $fileName): \Generator
     {
         if (null === $fileName) {
-            $fileName = uniqid('chrome_pdf_', true).'.pdf';
+            $fileName = 'chrome_pdf_'.bin2hex(random_bytes(8));
             $this->logger?->debug('{processor}: no filename given. Content will be dumped to "{file}".', ['processor' => self::class, 'file' => $fileName]);
+        }
+
+        $path = Path::join($this->directory, $fileName);
+        if (!Path::isBasePath($this->directory, $path)) {
+            throw new ProcessorException(\sprintf('The file name "%s" points outside of the "%s" directory.', $fileName, $this->directory));
         }
 
         $tempfileProcessor = (new TempfileProcessor())($fileName);
@@ -35,8 +41,6 @@ final class FileProcessor implements ProcessorInterface
         $resource = $tempfileProcessor->getReturn();
 
         try {
-            $path = $this->directory.'/'.$fileName;
-
             $this->filesystem->dumpFile($path, $resource);
             $this->logger?->debug('{processor}: content dumped to "{path}".', ['processor' => self::class, 'path' => $path]);
 

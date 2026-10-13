@@ -6,7 +6,9 @@ use Daif\ChromePdfBundle\Builder\Attributes\WithConfigurationNode;
 use Daif\ChromePdfBundle\Builder\Behaviors\Dependencies\LoggerAwareTrait;
 use Daif\ChromePdfBundle\Builder\Behaviors\Dependencies\RequestAwareTrait;
 use Daif\ChromePdfBundle\Builder\BodyBag;
+use Daif\ChromePdfBundle\Builder\Util\CookieNormalizer;
 use Daif\ChromePdfBundle\Builder\Util\ValidatorFactory;
+use Daif\ChromePdfBundle\Exception\InvalidBuilderConfiguration;
 use Daif\ChromePdfBundle\NodeBuilder\ArrayNodeBuilder;
 use Daif\ChromePdfBundle\NodeBuilder\BooleanNodeBuilder;
 use Daif\ChromePdfBundle\NodeBuilder\EnumNodeBuilder;
@@ -24,9 +26,11 @@ trait CookieTrait
     abstract protected function getBodyBag(): BodyBag;
 
     /**
-     * Cookies to store in the Chromium cookie jar.
+     * Cookies to store in the Chromium cookie jar (overrides any previous cookies).
      *
-     * @param list<Cookie|array{name: string, value: string, domain: string, path?: string|null, secure?: bool|null, httpOnly?: bool|null, sameSite?: 'Strict'|'Lax'|null}> $cookies
+     * Symfony Cookie objects are normalized into arrays; a Cookie without domain gets the host of the current request.
+     *
+     * @param list<Cookie|array{name: string, value: string, domain: string, path?: string|null, secure?: bool|null, httpOnly?: bool|null, sameSite?: 'Strict'|'Lax'|'None'|null}> $cookies
      *
      * @example cookies([[ 'name' => 'my_cookie', 'value' => 'symfony', 'domain' => 'symfony.com', 'secure' => true, 'httpOnly' => true, 'sameSite' => 'Lax']])
      */
@@ -41,9 +45,9 @@ trait CookieTrait
     ]))]
     public function cookies(array $cookies): static
     {
-        if ([] === $cookies) {
-            $this->getBodyBag()->unset('cookies');
+        $this->getBodyBag()->unset('cookies');
 
+        if ([] === $cookies) {
             return $this;
         }
 
@@ -55,7 +59,7 @@ trait CookieTrait
     /**
      * Add cookies to store in the Chromium cookie jar.
      *
-     * @param list<Cookie|array{name: string, value: string, domain: string, path?: string|null, secure?: bool|null, httpOnly?: bool|null, sameSite?: 'Strict'|'Lax'|null}> $cookies
+     * @param list<Cookie|array{name: string, value: string, domain: string, path?: string|null, secure?: bool|null, httpOnly?: bool|null, sameSite?: 'Strict'|'Lax'|'None'|null}> $cookies
      *
      * @example addCookies([['name' => 'my_cookie','value' => 'symfony','domain' => 'symfony.com','secure' => true,'httpOnly' => true,'sameSite' => 'Lax']])
      */
@@ -65,13 +69,8 @@ trait CookieTrait
         $c = $this->getBodyBag()->get('cookies', []);
 
         foreach ($cookies as $cookie) {
-            if ($cookie instanceof Cookie) {
-                $c[$cookie->getName()] = $cookie;
-
-                continue;
-            }
-
-            $c[$cookie['name']] = $cookie;
+            $normalized = $this->normalizeCookie($cookie);
+            $c[$normalized['name']] = $normalized;
         }
 
         $this->getBodyBag()->set('cookies', $c);
@@ -82,14 +81,14 @@ trait CookieTrait
     /**
      * If you want to add cookies and delete the ones already loaded in the configuration .
      *
-     * @param Cookie|array{name: string, value: string, domain: string, path?: string|null, secure?: bool|null, httpOnly?: bool|null, sameSite?: 'Strict'|'Lax'|null} $cookie
+     * @param Cookie|array{name: string, value: string, domain: string, path?: string|null, secure?: bool|null, httpOnly?: bool|null, sameSite?: 'Strict'|'Lax'|'None'|null} $cookie
      *
      * @example setCookie([ 'name' => 'my_cookie', 'value' => 'symfony', 'domain' => 'symfony.com', 'secure' => true, 'httpOnly' => true, 'sameSite' => 'Lax'])
      */
     public function setCookie(string $name, Cookie|array $cookie): static
     {
         $current = $this->getBodyBag()->get('cookies', []);
-        $current[$name] = $cookie;
+        $current[$name] = $this->normalizeCookie($cookie);
 
         $this->getBodyBag()->set('cookies', $current);
 
@@ -126,5 +125,26 @@ trait CookieTrait
             'value' => (string) $request->cookies->get($name),
             'domain' => $request->getHost(),
         ]);
+    }
+
+    /**
+     * @param Cookie|array<string, mixed> $cookie
+     *
+     * @return array{name: string, value: string, domain: string, path?: string, secure?: bool, httpOnly?: bool, sameSite?: 'Strict'|'Lax'|'None'}
+     *
+     * @throws InvalidBuilderConfiguration
+     */
+    private function normalizeCookie(Cookie|array $cookie): array
+    {
+        $defaultDomain = null;
+        if ($cookie instanceof Cookie && null === $cookie->getDomain()) {
+            try {
+                $defaultDomain = $this->getCurrentRequest()?->getHost();
+            } catch (\LogicException) {
+                $defaultDomain = null;
+            }
+        }
+
+        return CookieNormalizer::normalize($cookie, $defaultDomain);
     }
 }

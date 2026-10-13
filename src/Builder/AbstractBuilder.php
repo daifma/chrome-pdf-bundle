@@ -5,9 +5,16 @@ namespace Daif\ChromePdfBundle\Builder;
 use Daif\ChromePdfBundle\Browser\BrowserInterface;
 use Daif\ChromePdfBundle\Builder\Behaviors\Dependencies\LoggerAwareTrait;
 use Daif\ChromePdfBundle\Builder\Result\ChromePdfFileResult;
+use Daif\ChromePdfBundle\Builder\Util\CookieNormalizer;
+use Daif\ChromePdfBundle\Builder\ValueObject\RenderedPart;
+use Daif\ChromePdfBundle\Enumeration\Part;
+use Daif\ChromePdfBundle\Enumeration\Unit;
+use Daif\ChromePdfBundle\Exception\InvalidBuilderConfiguration;
+use Daif\ChromePdfBundle\Exception\PartRenderingException;
 use Daif\ChromePdfBundle\Processor\NullProcessor;
 use Daif\ChromePdfBundle\Processor\ProcessorInterface;
 use Psr\Container\ContainerInterface;
+use Symfony\Component\HttpFoundation\Cookie;
 use Symfony\Component\HttpFoundation\HeaderUtils;
 use Symfony\Contracts\Service\Attribute\SubscribedService;
 use Symfony\Contracts\Service\ServiceMethodsSubscriberTrait;
@@ -77,13 +84,21 @@ abstract class AbstractBuilder implements BuilderFileInterface, ServiceSubscribe
     {
         $this->validatePayloadBody();
 
-        $data = $this->executeBrowser($this->getBrowser());
+        $cleanup = $this->downloadRemoteFiles();
+        try {
+            $data = $this->executeBrowser($this->getBrowser());
+        } finally {
+            if (null !== $cleanup) {
+                $cleanup();
+            }
+        }
 
         return new ChromePdfFileResult(
             $data,
             $this->processor,
             $this->headerDisposition,
             $this->outputFileName,
+            $this->getContentType(),
         );
     }
 
@@ -96,6 +111,23 @@ abstract class AbstractBuilder implements BuilderFileInterface, ServiceSubscribe
     {
     }
 
+    /**
+     * MIME type of the generated file, used for the Content-Type of the response.
+     */
+    protected function getContentType(): string
+    {
+        return 'application/pdf';
+    }
+
+    /**
+     * Hook run right before the browser is called (see DownloadFromTrait). The returned closure, if any,
+     * is called once the generation is over, even on failure.
+     */
+    protected function downloadRemoteFiles(): \Closure|null
+    {
+        return null;
+    }
+
     #[SubscribedService('daif_chrome_pdf.browser')]
     protected function getBrowser(): BrowserInterface
     {
@@ -103,101 +135,117 @@ abstract class AbstractBuilder implements BuilderFileInterface, ServiceSubscribe
     }
 
     /**
-     * Collect page options from the body bag for CDP page configuration.
+     * Collects the page options (see BrowserInterface) from the body bag.
      *
      * @return array<string, mixed>
+     *
+     * @throws InvalidBuilderConfiguration
      */
     protected function collectPageOptions(): array
     {
         $options = [];
         $bag = $this->getBodyBag();
 
-        if (null !== $bag->get('cookies')) {
-            $options['cookies'] = $bag->get('cookies');
+        $cookies = $bag->get('cookies');
+        if (\is_array($cookies) && [] !== $cookies) {
+            $options['cookies'] = array_values(array_map(
+                static fn (mixed $cookie): array => CookieNormalizer::normalize($cookie instanceof Cookie || \is_array($cookie) ? $cookie : throw new InvalidBuilderConfiguration(\sprintf('Invalid cookie of type "%s".', get_debug_type($cookie)))),
+                $cookies,
+            ));
         }
 
-        if (null !== $bag->get('extraHttpHeaders')) {
-            $options['extraHttpHeaders'] = $bag->get('extraHttpHeaders');
+        foreach (['extraHttpHeaders', 'emulatedMediaFeatures', 'failOnHttpStatusCodes', 'failOnResourceHttpStatusCodes', 'ignoreResourceHttpStatusDomains'] as $key) {
+            $value = $bag->get($key);
+            if (\is_array($value) && [] !== $value) {
+                $options[$key] = $value;
+            }
         }
 
-        if (null !== $bag->get('userAgent')) {
-            $options['userAgent'] = $bag->get('userAgent');
+        foreach (['userAgent', 'waitDelay', 'waitForExpression', 'waitForSelector'] as $key) {
+            $value = $bag->get($key);
+            if (null !== $value) {
+                $options[$key] = (string) $value;
+            }
         }
 
-        if (null !== $bag->get('emulatedMediaType')) {
-            $mediaType = $bag->get('emulatedMediaType');
-            $options['emulatedMediaType'] = $mediaType instanceof \BackedEnum ? $mediaType->value : $mediaType;
+        $mediaType = $bag->get('emulatedMediaType');
+        if (null !== $mediaType) {
+            $options['emulatedMediaType'] = $mediaType instanceof \BackedEnum ? $mediaType->value : (string) $mediaType;
         }
 
-        if (null !== $bag->get('waitDelay')) {
-            $options['waitDelay'] = $bag->get('waitDelay');
+        $options['waitEvent'] = match (true) {
+            false === $bag->get('skipNetworkIdleEvent') => 'networkIdle',
+            false === $bag->get('skipNetworkAlmostIdleEvent') => 'networkAlmostIdle',
+            default => 'load',
+        };
+
+        foreach (['omitBackground', 'failOnResourceLoadingFailed', 'failOnConsoleExceptions'] as $key) {
+            $value = $bag->get($key);
+            if (null !== $value) {
+                $options[$key] = (bool) $value;
+            }
         }
 
-        if (null !== $bag->get('waitForExpression')) {
-            $options['waitForExpression'] = $bag->get('waitForExpression');
-        }
-
-        if (null !== $bag->get('skipNetworkIdleEvent') && $bag->get('skipNetworkIdleEvent')) {
-            $options['waitEvent'] = 'load';
-        }
-
-        if (null !== $bag->get('assets')) {
-            $options['assets'] = $bag->get('assets');
+        $assets = $bag->get('assets');
+        if (\is_array($assets) && [] !== $assets) {
+            $options['assets'] = $assets;
         }
 
         return $options;
     }
 
     /**
-     * Collect PDF-specific options from the body bag for CDP Page.printToPDF.
+     * Collects the Page.printToPDF options (lengths converted into inches) from the body bag.
      *
      * @return array<string, mixed>
+     *
+     * @throws InvalidBuilderConfiguration
      */
     protected function collectPdfOptions(): array
     {
         $options = [];
         $bag = $this->getBodyBag();
 
-        $floatKeys = ['paperWidth', 'paperHeight', 'marginTop', 'marginBottom', 'marginLeft', 'marginRight', 'scale'];
-        foreach ($floatKeys as $key) {
+        foreach (['paperWidth', 'paperHeight', 'marginTop', 'marginBottom', 'marginLeft', 'marginRight'] as $key) {
             $value = $bag->get($key);
             if (null !== $value) {
-                $options[$key] = $this->parseUnitToInches($value);
+                $options[$key] = self::toInches($key, $value);
             }
         }
 
-        $boolKeys = ['landscape', 'printBackground', 'preferCssPageSize', 'singlePage', 'omitBackground', 'generateDocumentOutline', 'generateTaggedPdf'];
-        foreach ($boolKeys as $key) {
+        $scale = $bag->get('scale');
+        if (null !== $scale) {
+            if (!is_numeric($scale)) {
+                throw new InvalidBuilderConfiguration(\sprintf('Invalid "scale" value "%s", expected a number between 0.1 and 2.', get_debug_type($scale)));
+            }
+            $options['scale'] = (float) $scale;
+        }
+
+        foreach (['landscape' => 'landscape', 'printBackground' => 'printBackground', 'preferCssPageSize' => 'preferCSSPageSize', 'singlePage' => 'singlePage', 'generateDocumentOutline' => 'generateDocumentOutline', 'generateTaggedPdf' => 'generateTaggedPdf'] as $key => $cdpKey) {
             $value = $bag->get($key);
             if (null !== $value) {
-                $cdpKey = match ($key) {
-                    'preferCssPageSize' => 'preferCSSPageSize',
-                    default => $key,
-                };
                 $options[$cdpKey] = (bool) $value;
             }
         }
 
-        if (null !== $bag->get('nativePageRanges')) {
-            $options['pageRanges'] = $bag->get('nativePageRanges');
+        $pageRanges = $bag->get('nativePageRanges');
+        if (\is_string($pageRanges) && '' !== $pageRanges) {
+            $options['pageRanges'] = $pageRanges;
         }
 
-        // Header/footer templates
-        $headerPart = $bag->get('header.html');
-        if (null !== $headerPart) {
-            $options['headerTemplate'] = $this->extractHtmlContent($headerPart);
-        }
-
-        $footerPart = $bag->get('footer.html');
-        if (null !== $footerPart) {
-            $options['footerTemplate'] = $this->extractHtmlContent($footerPart);
+        $header = $bag->get(Part::Header->value);
+        $footer = $bag->get(Part::Footer->value);
+        if (null !== $header || null !== $footer) {
+            // Chrome prints its default date/title header (or url/page footer) when only one template is given.
+            $options['headerTemplate'] = null !== $header ? $this->extractHtmlContent($header) : '<span></span>';
+            $options['footerTemplate'] = null !== $footer ? $this->extractHtmlContent($footer) : '<span></span>';
         }
 
         return $options;
     }
 
     /**
-     * Collect screenshot-specific options from the body bag.
+     * Collects the screenshot options from the body bag.
      *
      * @return array<string, mixed>
      */
@@ -206,84 +254,83 @@ abstract class AbstractBuilder implements BuilderFileInterface, ServiceSubscribe
         $options = [];
         $bag = $this->getBodyBag();
 
-        if (null !== $bag->get('width')) {
-            $options['width'] = (int) $bag->get('width');
+        foreach (['width', 'height'] as $key) {
+            $value = $bag->get($key);
+            if (null !== $value) {
+                $options[$key] = (int) $value;
+            }
         }
 
-        if (null !== $bag->get('height')) {
-            $options['height'] = (int) $bag->get('height');
+        $deviceScaleFactor = $bag->get('deviceScaleFactor');
+        if (null !== $deviceScaleFactor) {
+            $options['deviceScaleFactor'] = (float) $deviceScaleFactor;
         }
 
-        if (null !== $bag->get('format')) {
-            $format = $bag->get('format');
-            $options['format'] = $format instanceof \BackedEnum ? $format->value : $format;
+        foreach (['clip', 'optimizeForSpeed'] as $key) {
+            $value = $bag->get($key);
+            if (null !== $value) {
+                $options[$key] = (bool) $value;
+            }
         }
 
-        if (null !== $bag->get('quality')) {
-            $options['quality'] = (int) $bag->get('quality');
+        $format = $bag->get('format');
+        $format = $format instanceof \BackedEnum ? $format->value : $format;
+        if (null !== $format) {
+            $options['format'] = (string) $format;
         }
 
-        if (null !== $bag->get('omitBackground') && $bag->get('omitBackground')) {
-            $options['captureBeyondViewport'] = false;
-        }
-
-        if (null !== $bag->get('optimizeForSpeed')) {
-            $options['optimizeForSpeed'] = (bool) $bag->get('optimizeForSpeed');
-        }
-
-        if (null !== $bag->get('clip') && $bag->get('clip')) {
-            $options['clip'] = [
-                'x' => 0,
-                'y' => 0,
-                'width' => $options['width'] ?? 800,
-                'height' => $options['height'] ?? 600,
-                'scale' => 1,
-            ];
+        $quality = $bag->get('quality');
+        if (null !== $quality && 'png' !== ($options['format'] ?? 'png')) {
+            $options['quality'] = (int) $quality;
         }
 
         return $options;
     }
 
     /**
-     * Extract HTML content from a RenderedPart or SplFileInfo.
+     * Extracts the HTML content of a part (RenderedPart or file).
+     *
+     * @throws PartRenderingException if the file cannot be read
      */
     protected function extractHtmlContent(mixed $part): string
     {
-        if ($part instanceof ValueObject\RenderedPart) {
+        if ($part instanceof RenderedPart) {
             return $part->body;
         }
 
         if ($part instanceof \SplFileInfo) {
-            return file_get_contents($part->getPathname()) ?: '';
+            $content = @file_get_contents($part->getPathname());
+            if (false === $content) {
+                throw new PartRenderingException(\sprintf('Could not read the file "%s".', $part->getPathname()));
+            }
+
+            return $content;
         }
 
-        return (string) $part;
+        if (\is_string($part) || $part instanceof \Stringable) {
+            return (string) $part;
+        }
+
+        throw new PartRenderingException(\sprintf('Unexpected part of type "%s".', get_debug_type($part)));
     }
 
     /**
-     * Parse a value with unit suffix to float inches.
+     * @throws InvalidBuilderConfiguration
      */
-    private function parseUnitToInches(mixed $value): float
+    private static function toInches(string $key, mixed $value): float
     {
-        if (\is_float($value) || \is_int($value)) {
-            return (float) $value;
+        if ($value instanceof \Stringable) {
+            $value = (string) $value;
         }
 
-        $str = (string) $value;
-
-        if (preg_match('/^([\d.]+)(in|cm|mm|pt|px)?$/', $str, $matches)) {
-            $num = (float) $matches[1];
-            $unit = $matches[2] ?? 'in';
-
-            return match ($unit) {
-                'in' => $num,
-                'cm' => $num / 2.54,
-                'mm' => $num / 25.4,
-                'pt' => $num / 72.0,
-                'px' => $num / 96.0,
-            };
+        if (!\is_string($value) && !\is_int($value) && !\is_float($value)) {
+            throw new InvalidBuilderConfiguration(\sprintf('Invalid "%s" value of type "%s".', $key, get_debug_type($value)));
         }
 
-        return (float) $str;
+        try {
+            return Unit::parseToInches($value);
+        } catch (InvalidBuilderConfiguration $e) {
+            throw new InvalidBuilderConfiguration(\sprintf('Invalid "%s" value: %s', $key, $e->getMessage()), previous: $e);
+        }
     }
 }

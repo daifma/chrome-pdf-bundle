@@ -4,6 +4,7 @@ namespace Daif\ChromePdfBundle\Builder\Screenshot;
 
 use Daif\ChromePdfBundle\Browser\BrowserInterface;
 use Daif\ChromePdfBundle\Builder\AbstractBuilder;
+use Daif\ChromePdfBundle\Builder\AssetPathResolverInterface;
 use Daif\ChromePdfBundle\Builder\Attributes\WithBuilderConfiguration;
 use Daif\ChromePdfBundle\Builder\Behaviors\ChromiumScreenshotTrait;
 use Daif\ChromePdfBundle\Builder\Behaviors\Dependencies\RequestContextAwareTrait;
@@ -16,7 +17,7 @@ use Symfony\Contracts\Service\Attribute\SubscribedService;
  * Convert a URL into screenshot using Chrome.
  */
 #[WithBuilderConfiguration(type: 'screenshot', name: 'url')]
-final class UrlScreenshotBuilder extends AbstractBuilder implements BuilderAssetInterface
+final class UrlScreenshotBuilder extends AbstractBuilder implements BuilderAssetInterface, AssetPathResolverInterface
 {
     use ChromiumScreenshotTrait;
     use RequestContextAwareTrait;

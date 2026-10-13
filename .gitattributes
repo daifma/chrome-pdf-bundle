@@ -1,8 +1,28 @@
+# Normalize line endings: LF in the repository and in working copies (also on Windows),
+# so fixtures, generated HTML and php-cs-fixer results are identical on every OS.
+* text=auto eol=lf
+
+# Binary files: never touch line endings, no textual diff
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.eot binary
+*.zip binary
+
 /bin export-ignore
 /docs export-ignore
 /tests export-ignore
 /.editorconfig export-ignore
 /.php-cs-fixer.dist.php export-ignore
+/.phpstorm.meta.php export-ignore
 /composer-dependency-analyser.php export-ignore
 /phpstan.neon export-ignore
 /phpstan.dist.neon export-ignore

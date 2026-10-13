@@ -1,13 +1,29 @@
 # MarkdownScreenshotBuilder
 
-Convert Markdown files into a screenshot. The Markdown is first converted to HTML, then captured as an image via Chrome.
+Convert Markdown files into an image. The Markdown is converted to HTML with league/commonmark, injected into a
+wrapper, and captured by Chrome.
 
 ## Basic usage
+
+The wrapper uses the same `{{ toHTML "file.md" }}` directive as the
+[MarkdownPdfBuilder](../pdf/MarkdownPdfBuilder.md#the-tohtml-directive). In a **Twig** wrapper, put it inside
+`{% verbatim %}`:
+
+```twig
+<!doctype html>
+<html lang="en">
+    <head><meta charset="utf-8"><title>Preview</title></head>
+    <body>
+        {% verbatim %}{{ toHTML "content.md" }}{% endverbatim %}
+    </body>
+</html>
+```
 
 ```php
 namespace App\Controller;
 
 use Daif\ChromePdfBundle\ChromeScreenshotInterface;
+use Symfony\Component\HttpFoundation\Response;
 
 class YourController
 {
@@ -25,26 +41,32 @@ class YourController
 
 ## Available methods
 
-All methods from [HtmlScreenshotBuilder](./HtmlScreenshotBuilder.md) are available, plus:
+The methods from [HtmlScreenshotBuilder](./HtmlScreenshotBuilder.md) are available, except `content()` /
+`contentFile()` / `contentRaw()`, which are replaced by:
 
 | Method | Description |
 |---|---|
 | `files(Stringable\|string ...$paths)` | Markdown files to convert |
-| `wrapper(string $template, array $context)` | Twig wrapper template |
+| `wrapper(string $template, array $context = [])` | Twig wrapper template |
 | `wrapperFile(string $path)` | HTML wrapper file |
+| `wrapperRaw(string $html)` | Raw HTML wrapper string |
+
+The capture is full page by default (`clip()` = viewport only).
 
 ## Examples
 
-### Markdown screenshot with custom dimensions
+### Markdown preview as WebP
 
 ```php
+use Daif\ChromePdfBundle\Enumeration\ScreenshotFormat;
+
 $chromeScreenshot->markdown()
     ->wrapper('styled_wrapper.html.twig')
     ->files('content.md')
     ->width(1200)
-    ->height(800)
-    ->format('png')
+    ->format(ScreenshotFormat::Webp)
+    ->quality(80)
     ->generate()
-    ->stream()
+    ->stream()   // Content-Type: image/webp
 ;
 ```

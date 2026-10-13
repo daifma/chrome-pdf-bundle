@@ -35,13 +35,13 @@ final class ChromePdfPass implements CompilerPassInterface
 
         if ($container->hasDefinition('daif_chrome_pdf.pdf')) {
             $container->getDefinition('daif_chrome_pdf.pdf')
-                ->replaceArgument(0, ServiceLocatorTagPass::register($container, $builderPerType['pdf']))
+                ->replaceArgument(0, ServiceLocatorTagPass::register($container, $builderPerType['pdf'] ?? []))
             ;
         }
 
         if ($container->hasDefinition('daif_chrome_pdf.screenshot')) {
             $container->getDefinition('daif_chrome_pdf.screenshot')
-                ->replaceArgument(0, ServiceLocatorTagPass::register($container, $builderPerType['screenshot']))
+                ->replaceArgument(0, ServiceLocatorTagPass::register($container, $builderPerType['screenshot'] ?? []))
             ;
         }
 

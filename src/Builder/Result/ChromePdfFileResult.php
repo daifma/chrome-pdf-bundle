@@ -23,6 +23,7 @@ class ChromePdfFileResult
         private ProcessorInterface $processor,
         private string $disposition,
         private readonly string|null $fileName = null,
+        private readonly string $contentType = 'application/pdf',
     ) {
     }
 
@@ -70,6 +71,14 @@ class ChromePdfFileResult
         return $this->fileName;
     }
 
+    /**
+     * MIME type of the generated file: "application/pdf" or "image/png", "image/jpeg", "image/webp" for screenshots.
+     */
+    public function getContentType(): string
+    {
+        return $this->contentType;
+    }
+
     public function getStatusCode(): int
     {
         return 200;
@@ -101,7 +110,7 @@ class ChromePdfFileResult
         $this->processed = true;
 
         $headers = [
-            'Content-Type' => ['application/pdf'],
+            'Content-Type' => [$this->contentType],
             'Content-Length' => [(string) \strlen($this->data)],
             'X-Accel-Buffering' => ['no'],
         ];

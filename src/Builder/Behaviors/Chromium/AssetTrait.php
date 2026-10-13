@@ -39,6 +39,8 @@ trait AssetTrait
     /**
      * Adds a file, like an image, font, stylesheet, and so on.
      *
+     * The file is copied next to the HTML document under its basename: reference it in your HTML by its basename only.
+     *
      * By default, the assets files are fetch in the assets folder of your application.
      * If your assets are in another folder, you can override the default value of assets_directory in your
      * configuration file config/daif_chrome_pdf.yml.
@@ -60,5 +62,13 @@ trait AssetTrait
         $this->getBodyBag()->set('assets', $assets);
 
         return $this;
+    }
+
+    /**
+     * Resolves an asset path against the configured assets directories without adding it to the assets.
+     */
+    public function resolveAssetPath(string $path): string
+    {
+        return $this->getAssetBaseDirFormatter()->resolve($path);
     }
 }

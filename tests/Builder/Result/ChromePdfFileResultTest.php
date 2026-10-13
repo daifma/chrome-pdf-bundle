@@ -1,7 +1,5 @@
 <?php
 
-declare(strict_types=1);
-
 namespace Daif\ChromePdfBundle\Tests\Builder\Result;
 
 use Daif\ChromePdfBundle\Builder\Result\ChromePdfFileResult;
@@ -116,5 +114,22 @@ class ChromePdfFileResultTest extends TestCase
         self::expectException(ProcessorException::class);
         self::expectExceptionMessage('Already processed query.');
         $fileResult->setDisposition(HeaderUtils::DISPOSITION_ATTACHMENT);
+    }
+
+    public function testContentTypeDefaultsToPdf(): void
+    {
+        $fileResult = $this->getChromePdfFileResult();
+
+        self::assertSame('application/pdf', $fileResult->getContentType());
+        self::assertSame('application/pdf', $fileResult->stream()->headers->get('Content-Type'));
+    }
+
+    public function testContentTypeOfScreenshots(): void
+    {
+        $fileResult = new ChromePdfFileResult('png', new InMemoryProcessor(), HeaderUtils::DISPOSITION_INLINE, 'shot.png', 'image/png');
+
+        self::assertSame('image/png', $fileResult->getContentType());
+        self::assertSame(3, $fileResult->getContentLength());
+        self::assertSame('image/png', $fileResult->stream()->headers->get('Content-Type'));
     }
 }

@@ -4,6 +4,7 @@ namespace Daif\ChromePdfBundle\Builder\Pdf;
 
 use Daif\ChromePdfBundle\Browser\BrowserInterface;
 use Daif\ChromePdfBundle\Builder\AbstractBuilder;
+use Daif\ChromePdfBundle\Builder\AssetPathResolverInterface;
 use Daif\ChromePdfBundle\Builder\Attributes\WithBuilderConfiguration;
 use Daif\ChromePdfBundle\Builder\Behaviors\ChromiumPdfTrait;
 use Daif\ChromePdfBundle\Builder\BuilderAssetInterface;
@@ -14,7 +15,7 @@ use Daif\ChromePdfBundle\Exception\MissingRequiredFieldException;
  * Convert HTML or Twig files into PDF using Chrome.
  */
 #[WithBuilderConfiguration(type: 'pdf', name: 'html')]
-final class HtmlPdfBuilder extends AbstractBuilder implements BuilderAssetInterface
+final class HtmlPdfBuilder extends AbstractBuilder implements BuilderAssetInterface, AssetPathResolverInterface
 {
     use ChromiumPdfTrait;
 
