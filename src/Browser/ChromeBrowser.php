@@ -2,138 +2,87 @@
 
 namespace Daif\ChromePdfBundle\Browser;
 
+use Daif\ChromePdfBundle\Exception\BrowserException;
 use HeadlessChromium\Browser;
 use HeadlessChromium\BrowserFactory;
-use HeadlessChromium\Cookies\Cookie;
-use HeadlessChromium\Cookies\CookiesCollection;
 use HeadlessChromium\Page;
 use Psr\Log\LoggerInterface;
-use Symfony\Component\Filesystem\Filesystem;
 
+/**
+ * Converts HTML or URLs to PDF / images with a local Chrome, Chromium or Microsoft Edge.
+ *
+ * The Chrome process is started lazily, reused across conversions and transparently
+ * restarted once when it died. Each conversion uses its own tab, always closed afterwards.
+ */
 final class ChromeBrowser implements BrowserInterface
 {
     private Browser|null $browser = null;
 
     /**
-     * @param array<string, mixed> $browserOptions Options for BrowserFactory::createBrowser()
+     * @param array<string, mixed> $browserOptions raw chrome-php BrowserFactory options, merged last
+     * @param int                  $timeout        milliseconds, applies to navigation, waits, printing and screenshots
+     * @param list<string>         $allowList      PCRE patterns with delimiters, e.g. "#^https://intranet\.#"
+     * @param list<string>         $denyList       PCRE patterns with delimiters
      */
     public function __construct(
         private readonly string|null $chromeBinary = null,
         private readonly array $browserOptions = [],
         private readonly LoggerInterface|null $logger = null,
+        private readonly int $timeout = 30000,
+        private readonly bool $noSandbox = false,
+        private readonly bool $ignoreCertificateErrors = false,
+        private readonly string|null $tempDir = null,
+        private readonly array $allowList = [],
+        private readonly array $denyList = [],
     ) {
+        if ($timeout <= 0) {
+            throw new BrowserException(\sprintf('The timeout must be a positive number of milliseconds, %d given.', $timeout));
+        }
+
+        // fail fast on invalid patterns
+        new RequestFilter(null, $allowList, $denyList);
     }
 
     public function htmlToPdf(string $html, array $pdfOptions = [], array $pageOptions = []): string
     {
-        $tempDir = $this->createTempDir();
-
-        try {
-            $htmlPath = $tempDir.'/index.html';
-            file_put_contents($htmlPath, $html);
-
-            $this->copyAssetsToTempDir($pageOptions['assets'] ?? [], $tempDir);
-
-            $page = $this->createPage();
-            $this->configurePage($page, $pageOptions);
-
-            $page->navigate('file://'.$htmlPath)->waitForNavigation(
-                $pageOptions['waitEvent'] ?? Page::LOAD,
-            );
-
-            $this->applyWait($page, $pageOptions);
-
-            $pagePdf = $page->pdf($this->buildCdpPdfOptions($pdfOptions, $pageOptions));
-
-            return $pagePdf->getRawBinary();
-        } finally {
-            $this->cleanupTempDir($tempDir);
-        }
+        return $this->convertHtml($html, $pageOptions, null, static fn (PageSession $session): string => $session->printToPdf($pdfOptions, $pageOptions));
     }
 
     public function urlToPdf(string $url, array $pdfOptions = [], array $pageOptions = []): string
     {
-        $page = $this->createPage();
-        $this->configurePage($page, $pageOptions);
-
-        $page->navigate($url)->waitForNavigation(
-            $pageOptions['waitEvent'] ?? Page::LOAD,
-        );
-
-        $this->applyWait($page, $pageOptions);
-
-        $pagePdf = $page->pdf($this->buildCdpPdfOptions($pdfOptions, $pageOptions));
-
-        return $pagePdf->getRawBinary();
+        return $this->convertUrl($url, $pageOptions, null, static fn (PageSession $session): string => $session->printToPdf($pdfOptions, $pageOptions));
     }
 
     public function htmlToScreenshot(string $html, array $screenshotOptions = [], array $pageOptions = []): string
     {
-        $tempDir = $this->createTempDir();
+        $screenshotOptions = self::normalizeScreenshotOptions($screenshotOptions);
 
-        try {
-            $htmlPath = $tempDir.'/index.html';
-            file_put_contents($htmlPath, $html);
-
-            $this->copyAssetsToTempDir($pageOptions['assets'] ?? [], $tempDir);
-
-            $page = $this->createPage();
-            $this->configurePage($page, $pageOptions);
-
-            if (isset($screenshotOptions['width']) || isset($screenshotOptions['height'])) {
-                $page->setDeviceMetricsOverride([
-                    'width' => $screenshotOptions['width'] ?? 800,
-                    'height' => $screenshotOptions['height'] ?? 600,
-                    'deviceScaleFactor' => 1,
-                    'mobile' => false,
-                ]);
-                unset($screenshotOptions['width'], $screenshotOptions['height']);
-            }
-
-            $page->navigate('file://'.$htmlPath)->waitForNavigation(
-                $pageOptions['waitEvent'] ?? Page::LOAD,
-            );
-
-            $this->applyWait($page, $pageOptions);
-
-            $screenshot = $page->screenshot($screenshotOptions);
-
-            return $screenshot->getRawBinary();
-        } finally {
-            $this->cleanupTempDir($tempDir);
-        }
+        return $this->convertHtml($html, $pageOptions, self::viewport($screenshotOptions), static fn (PageSession $session): string => $session->captureScreenshot($screenshotOptions));
     }
 
     public function urlToScreenshot(string $url, array $screenshotOptions = [], array $pageOptions = []): string
     {
-        $page = $this->createPage();
-        $this->configurePage($page, $pageOptions);
+        $screenshotOptions = self::normalizeScreenshotOptions($screenshotOptions);
 
-        if (isset($screenshotOptions['width']) || isset($screenshotOptions['height'])) {
-            $page->setDeviceMetricsOverride([
-                'width' => $screenshotOptions['width'] ?? 800,
-                'height' => $screenshotOptions['height'] ?? 600,
-                'deviceScaleFactor' => 1,
-                'mobile' => false,
-            ]);
-            unset($screenshotOptions['width'], $screenshotOptions['height']);
-        }
-
-        $page->navigate($url)->waitForNavigation(
-            $pageOptions['waitEvent'] ?? Page::LOAD,
-        );
-
-        $this->applyWait($page, $pageOptions);
-
-        $screenshot = $page->screenshot($screenshotOptions);
-
-        return $screenshot->getRawBinary();
+        return $this->convertUrl($url, $pageOptions, self::viewport($screenshotOptions), static fn (PageSession $session): string => $session->captureScreenshot($screenshotOptions));
     }
 
+    /**
+     * Stops the Chrome process. A later conversion starts a new one.
+     */
     public function close(): void
     {
-        $this->browser?->close();
+        $browser = $this->browser;
         $this->browser = null;
+        if (null === $browser) {
+            return;
+        }
+
+        try {
+            $browser->close();
+        } catch (\Throwable $e) {
+            $this->logger?->warning('Unable to close Chrome: {message}', ['message' => $e->getMessage(), 'exception' => $e]);
+        }
     }
 
     public function __destruct()
@@ -141,158 +90,196 @@ final class ChromeBrowser implements BrowserInterface
         $this->close();
     }
 
-    private function getBrowser(): Browser
+    /**
+     * @param array<string, mixed>                                          $pageOptions
+     * @param array{width: int, height: int, deviceScaleFactor: float}|null $viewport
+     * @param callable(PageSession): string                                 $produce
+     */
+    private function convertHtml(string $html, array $pageOptions, array|null $viewport, callable $produce): string
     {
-        if (null === $this->browser) {
-            $factory = new BrowserFactory($this->chromeBinary);
+        $directory = WorkingDirectory::create($this->tempDir);
 
-            $options = array_merge([
-                'headless' => true,
-                'noSandbox' => true,
-                'ignoreCertificateErrors' => true,
-            ], $this->browserOptions);
+        try {
+            $assets = $pageOptions['assets'] ?? [];
+            if (!\is_array($assets)) {
+                throw new BrowserException('The "assets" page option must be an array of SplFileInfo.');
+            }
+            $directory->copyAssets($assets);
+            $index = $directory->writeFile('index.html', $html);
 
-            if (null !== $this->logger) {
-                $options['debugLogger'] = $this->logger;
+            $filter = new RequestFilter($directory->getPath(), $this->allowList, $this->denyList);
+
+            return $this->render(FileUrl::fromPath($index), $filter, $pageOptions, $viewport, $produce);
+        } finally {
+            $directory->remove($this->logger);
+        }
+    }
+
+    /**
+     * @param array<string, mixed>                                          $pageOptions
+     * @param array{width: int, height: int, deviceScaleFactor: float}|null $viewport
+     * @param callable(PageSession): string                                 $produce
+     */
+    private function convertUrl(string $url, array $pageOptions, array|null $viewport, callable $produce): string
+    {
+        $scheme = strtolower((string) parse_url($url, \PHP_URL_SCHEME));
+        if (!\in_array($scheme, ['http', 'https'], true)) {
+            throw new BrowserException(\sprintf('Only http and https URLs can be converted, "%s" given.', self::shortUrl($url)));
+        }
+
+        $filter = new RequestFilter(null, $this->allowList, $this->denyList);
+        $reason = $filter->getBlockReason($url);
+        if (null !== $reason) {
+            throw new BrowserException(\sprintf('The URL "%s" is not allowed: %s.', self::shortUrl($url), $reason));
+        }
+
+        return $this->render($url, $filter, $pageOptions, $viewport, $produce);
+    }
+
+    /**
+     * @param array<string, mixed>                                          $pageOptions
+     * @param array{width: int, height: int, deviceScaleFactor: float}|null $viewport
+     * @param callable(PageSession): string                                 $produce
+     */
+    private function render(string $url, RequestFilter $filter, array $pageOptions, array|null $viewport, callable $produce): string
+    {
+        $page = $this->createPage();
+        try {
+            $session = new PageSession($page, $filter, $this->timeout, $this->logger);
+        } catch (\Throwable $e) {
+            // the session never took ownership of the tab
+            try {
+                $page->close();
+            } catch (\Throwable) {
             }
 
-            $this->browser = $factory->createBrowser($options);
+            throw $e;
+        }
+
+        try {
+            $session->open($url, $pageOptions, $viewport);
+
+            return $produce($session);
+        } finally {
+            $session->close();
+            if (!$this->isBrowserAlive()) {
+                // next conversion starts a fresh process
+                $this->close();
+            }
+        }
+    }
+
+    private function createPage(): Page
+    {
+        try {
+            return $this->getBrowser()->createPage();
+        } catch (BrowserException $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+            $this->logger?->warning('Unable to open a Chrome tab, restarting Chrome: {message}', ['message' => $e->getMessage(), 'exception' => $e]);
+            $this->close();
+        }
+
+        try {
+            return $this->getBrowser()->createPage();
+        } catch (BrowserException $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+            $this->close();
+
+            throw new BrowserException(\sprintf('Unable to open a Chrome tab: %s', $e->getMessage()), 0, $e);
+        }
+    }
+
+    private function getBrowser(): Browser
+    {
+        if (null !== $this->browser && !$this->isBrowserAlive()) {
+            $this->logger?->warning('The Chrome process is not responding anymore, restarting it.');
+            $this->close();
+        }
+
+        if (null === $this->browser) {
+            $binary = (new ChromeFinder())->find($this->chromeBinary);
+
+            try {
+                $this->browser = (new BrowserFactory($binary))->createBrowser($this->buildBrowserOptions());
+            } catch (\Throwable $e) {
+                throw new BrowserException(\sprintf('Unable to start Chrome "%s": %s', $binary, $e->getMessage()), 0, $e);
+            }
         }
 
         return $this->browser;
     }
 
-    private function createPage(): Page
+    private function isBrowserAlive(): bool
     {
-        return $this->getBrowser()->createPage();
+        try {
+            return null !== $this->browser && $this->browser->getConnection()->isConnected();
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     /**
-     * @param array<string, mixed> $pageOptions
+     * @return array<string, mixed>
      */
-    private function configurePage(Page $page, array $pageOptions): void
+    private function buildBrowserOptions(): array
     {
-        if (isset($pageOptions['cookies'])) {
-            $cookies = [];
-            foreach ($pageOptions['cookies'] as $cookie) {
-                $cookies[] = Cookie::create(
-                    $cookie['name'],
-                    $cookie['value'],
-                    $cookie,
-                );
-            }
-            $page->setCookies(new CookiesCollection($cookies))->await();
+        $defaults = [
+            'headless' => true,
+            'noSandbox' => $this->noSandbox,
+            'ignoreCertificateErrors' => $this->ignoreCertificateErrors,
+            'sendSyncDefaultTimeout' => $this->timeout,
+            // /dev/shm is 64 MB in Docker by default, large pages crash the renderer
+            'customFlags' => ['--disable-dev-shm-usage'],
+        ];
+
+        $options = array_merge($defaults, $this->browserOptions);
+
+        if (isset($this->browserOptions['customFlags']) && \is_array($this->browserOptions['customFlags'])) {
+            $options['customFlags'] = array_values(array_unique([...$defaults['customFlags'], ...$this->browserOptions['customFlags']]));
         }
 
-        if (isset($pageOptions['extraHttpHeaders'])) {
-            $page->setExtraHTTPHeaders($pageOptions['extraHttpHeaders']);
-        }
-
-        if (isset($pageOptions['userAgent'])) {
-            $page->setUserAgent($pageOptions['userAgent'])->await();
-        }
-
-        if (isset($pageOptions['emulatedMediaType'])) {
-            $page->getSession()->sendMessage(
-                new \HeadlessChromium\Communication\Message(
-                    'Emulation.setEmulatedMedia',
-                    ['media' => $pageOptions['emulatedMediaType']],
-                ),
-            )->waitForResponse();
-        }
+        return $options;
     }
 
     /**
-     * @param array<string, mixed> $pageOptions
-     */
-    private function applyWait(Page $page, array $pageOptions): void
-    {
-        if (isset($pageOptions['waitDelay'])) {
-            usleep($this->parseDelay($pageOptions['waitDelay']));
-        }
-
-        if (isset($pageOptions['waitForExpression'])) {
-            $page->evaluate($pageOptions['waitForExpression'])->waitForResponse();
-        }
-    }
-
-    /**
-     * @param array<string, mixed> $pdfOptions
-     * @param array<string, mixed> $pageOptions
+     * @param array<string, mixed> $options
      *
      * @return array<string, mixed>
      */
-    private function buildCdpPdfOptions(array $pdfOptions, array $pageOptions): array
+    private static function normalizeScreenshotOptions(array $options): array
     {
-        $cdpOptions = [];
+        $options['width'] = (int) ($options['width'] ?? 800);
+        $options['height'] = (int) ($options['height'] ?? 600);
+        $options['deviceScaleFactor'] = (float) ($options['deviceScaleFactor'] ?? 1.0);
 
-        $mapping = [
-            'paperWidth' => 'paperWidth',
-            'paperHeight' => 'paperHeight',
-            'marginTop' => 'marginTop',
-            'marginBottom' => 'marginBottom',
-            'marginLeft' => 'marginLeft',
-            'marginRight' => 'marginRight',
-            'landscape' => 'landscape',
-            'printBackground' => 'printBackground',
-            'scale' => 'scale',
-            'pageRanges' => 'pageRanges',
-            'preferCSSPageSize' => 'preferCSSPageSize',
-        ];
-
-        foreach ($mapping as $from => $to) {
-            if (isset($pdfOptions[$from])) {
-                $cdpOptions[$to] = $pdfOptions[$from];
-            }
+        if ($options['width'] <= 0 || $options['height'] <= 0) {
+            throw new BrowserException(\sprintf('Invalid screenshot size %dx%d.', $options['width'], $options['height']));
+        }
+        if ($options['deviceScaleFactor'] <= 0) {
+            throw new BrowserException(\sprintf('Invalid deviceScaleFactor %s.', $options['deviceScaleFactor']));
         }
 
-        if (isset($pdfOptions['headerTemplate']) || isset($pdfOptions['footerTemplate'])) {
-            $cdpOptions['displayHeaderFooter'] = true;
-            if (isset($pdfOptions['headerTemplate'])) {
-                $cdpOptions['headerTemplate'] = $pdfOptions['headerTemplate'];
-            }
-            if (isset($pdfOptions['footerTemplate'])) {
-                $cdpOptions['footerTemplate'] = $pdfOptions['footerTemplate'];
-            }
-        }
-
-        return $cdpOptions;
-    }
-
-    private function createTempDir(): string
-    {
-        $tempDir = sys_get_temp_dir().'/chrome_pdf_'.uniqid('', true);
-        (new Filesystem())->mkdir($tempDir);
-
-        return $tempDir;
+        return $options;
     }
 
     /**
-     * @param array<string, \SplFileInfo> $assets
+     * @param array<string, mixed> $options normalized screenshot options
+     *
+     * @return array{width: int, height: int, deviceScaleFactor: float}
      */
-    private function copyAssetsToTempDir(array $assets, string $tempDir): void
+    private static function viewport(array $options): array
     {
-        $filesystem = new Filesystem();
-        foreach ($assets as $path => $fileInfo) {
-            $targetPath = $tempDir.'/'.basename((string) $path);
-            $filesystem->copy($fileInfo->getPathname(), $targetPath);
-        }
+        return [
+            'width' => (int) $options['width'],
+            'height' => (int) $options['height'],
+            'deviceScaleFactor' => (float) $options['deviceScaleFactor'],
+        ];
     }
 
-    private function cleanupTempDir(string $tempDir): void
+    private static function shortUrl(string $url): string
     {
-        (new Filesystem())->remove($tempDir);
-    }
-
-    private function parseDelay(string $delay): int
-    {
-        if (preg_match('/^(\d+(?:\.\d+)?)(ms|s)?$/', $delay, $matches)) {
-            $value = (float) $matches[1];
-            $unit = $matches[2] ?? 's';
-
-            return (int) ($value * ('s' === $unit ? 1_000_000 : 1_000));
-        }
-
-        return 0;
+        return \strlen($url) > 200 ? substr($url, 0, 200).'...' : $url;
     }
 }
