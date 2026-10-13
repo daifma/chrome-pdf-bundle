@@ -27,6 +27,11 @@ $result->process(); // return type depends on the Processor used (see below)
 $result->stream(); // returns a Symfony\Component\HttpFoundation\StreamedResponse
 ```
 
+`stream()` sends a `StreamedResponse` with the right `Content-Type` (`application/pdf` for PDFs; `image/png`,
+`image/jpeg` or `image/webp` for screenshots, depending on `format()`), a `Content-Length` header, and a
+`Content-Disposition` header built from `fileName()`. The same value is available with
+`$result->getContentType()`.
+
 Here is the list of existing Processors:
 
 ### `Daif\ChromePdfBundle\Processor\FileProcessor`
@@ -335,3 +340,53 @@ class CustomProcessor implements ProcessorInterface
     }
 }
 ```
+
+## Asynchronous generation (instead of Gotenberg webhooks)
+
+GotenbergBundle can ask Gotenberg to call a webhook when the file is ready (`generateAsync()`). This bundle renders
+in-process, so there is no webhook. To generate documents in the background, use
+[Symfony Messenger](https://symfony.com/doc/current/messenger.html):
+
+```php
+// src/Message/GenerateInvoicePdf.php
+final class GenerateInvoicePdf
+{
+    public function __construct(public readonly int $invoiceId) {}
+}
+
+// src/MessageHandler/GenerateInvoicePdfHandler.php
+use Daif\ChromePdfBundle\ChromePdfInterface;
+use Daif\ChromePdfBundle\Processor\FileProcessor;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
+use Symfony\Component\Filesystem\Filesystem;
+use Symfony\Component\Messenger\Attribute\AsMessageHandler;
+
+#[AsMessageHandler]
+final class GenerateInvoicePdfHandler
+{
+    public function __construct(
+        private readonly ChromePdfInterface $chromePdf,
+        #[Autowire('%kernel.project_dir%/var/invoices')]
+        private readonly string $storage,
+    ) {}
+
+    public function __invoke(GenerateInvoicePdf $message): void
+    {
+        $this->chromePdf->html()
+            ->content('invoice.html.twig', ['id' => $message->invoiceId])
+            ->fileName('invoice-'.$message->invoiceId)
+            ->processor(new FileProcessor(new Filesystem(), $this->storage))
+            ->generate()
+            ->process()
+        ;
+        // then notify the user, dispatch another message, etc.
+    }
+}
+```
+
+Notes for workers:
+
+- The Chrome process is reused between messages and restarted automatically if it crashed. Tabs are closed after
+  each conversion, so long-running consumers don't leak memory. You can still use `--memory-limit` / `--time-limit`.
+- `->route()` has no current request in a worker: set `request_context.base_uri`.
+- The worker's OS user runs Chrome, see [security](security.md#run-chrome-as-a-dedicated-user).

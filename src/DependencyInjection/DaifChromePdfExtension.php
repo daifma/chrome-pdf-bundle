@@ -6,8 +6,10 @@ use Daif\ChromePdfBundle\Browser\BrowserInterface;
 use Daif\ChromePdfBundle\Browser\ChromeBrowser;
 use Daif\ChromePdfBundle\Builder\AbstractBuilder;
 use Daif\ChromePdfBundle\Builder\BuilderInterface;
+use Daif\ChromePdfBundle\Builder\Util\DownloadGuard;
 use Symfony\Component\Config\FileLocator;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
+use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DependencyInjection\Extension\Extension;
 use Symfony\Component\DependencyInjection\Loader\PhpFileLoader;
 use Symfony\Component\DependencyInjection\Reference;
@@ -15,23 +17,18 @@ use Symfony\Component\Routing\RequestContext;
 
 /**
  * @phpstan-type DaifChromePdfConfiguration array{
- *      assets_directory: string,
- *      chrome_binary?: string|null,
- *      browser_options?: array<string, mixed>,
+ *      assets_directory: list<string>,
+ *      chrome_binary: string|null,
+ *      timeout: int,
+ *      no_sandbox: bool,
+ *      ignore_certificate_errors: bool,
+ *      temp_dir: string|null,
+ *      allow_list: list<string>,
+ *      deny_list: list<string>,
+ *      browser_options: array<string, mixed>,
  *      request_context?: array{base_uri?: string},
  *      controller_listener: bool,
- *      default_options: array{
- *          pdf: array{
- *              html: array<string, mixed>,
- *              url: array<string, mixed>,
- *              markdown: array<string, mixed>,
- *          },
- *          screenshot: array{
- *              html: array<string, mixed>,
- *              url: array<string, mixed>,
- *              markdown: array<string, mixed>
- *          }
- *      }
+ *      default_options: array<string, array<string, array<string, mixed>>>,
  *  }
  */
 class DaifChromePdfExtension extends Extension
@@ -68,7 +65,7 @@ class DaifChromePdfExtension extends Extension
     }
 
     /**
-     * @param array<array-key, DaifChromePdfConfiguration> $config
+     * @param array<array-key, mixed> $config
      */
     public function getConfiguration(array $config, ContainerBuilder $container): Configuration
     {
@@ -96,18 +93,36 @@ class DaifChromePdfExtension extends Extension
         $loader->load('builder_screenshot.php');
 
         // Browser
+        // Shared, long-lived service: the Chrome process is reused across requests/messages.
+        // It is intentionally NOT tagged "kernel.reset" (that would kill and respawn Chrome
+        // after every request or Messenger message). The process is closed by
+        // ChromeBrowser::__destruct() and by chrome-php's shutdown function.
         $container->register('daif_chrome_pdf.browser', ChromeBrowser::class)
             ->setArguments([
-                $defaultConfiguration['chrome_binary'] ?? null,
-                $defaultConfiguration['browser_options'] ?? [],
-                new Reference('logger', \Symfony\Component\DependencyInjection\ContainerInterface::NULL_ON_INVALID_REFERENCE),
+                '$chromeBinary' => $config['chrome_binary'],
+                '$browserOptions' => $config['browser_options'],
+                '$logger' => new Reference('logger', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+                '$timeout' => $config['timeout'],
+                '$noSandbox' => $config['no_sandbox'],
+                '$ignoreCertificateErrors' => $config['ignore_certificate_errors'],
+                '$tempDir' => $config['temp_dir'],
+                '$allowList' => $config['allow_list'],
+                '$denyList' => $config['deny_list'],
             ])
             ->addTag('monolog.logger', ['channel' => 'daif_chrome_pdf'])
         ;
         $container->setAlias(BrowserInterface::class, 'daif_chrome_pdf.browser');
 
+        $container->register('.daif_chrome_pdf.download_guard', DownloadGuard::class)
+            ->setArguments([
+                '$allowList' => $config['allow_list'],
+                '$denyList' => $config['deny_list'],
+                '$tempDir' => $config['temp_dir'],
+            ])
+        ;
+
         // Request context
-        $baseUri = $defaultConfiguration['request_context']['base_uri'] ?? null;
+        $baseUri = $config['request_context']['base_uri'] ?? null;
         if (null !== $baseUri) {
             $container
                 ->register('.daif_chrome_pdf.request_context', RequestContext::class)
@@ -119,10 +134,10 @@ class DaifChromePdfExtension extends Extension
         // Asset base dir formatter
         $container
             ->getDefinition('.daif_chrome_pdf.asset.base_dir_formatter')
-            ->replaceArgument(1, $defaultConfiguration['assets_directory'])
+            ->replaceArgument(1, $config['assets_directory'])
         ;
 
-        if (false === $defaultConfiguration['controller_listener']) {
+        if (false === $config['controller_listener']) {
             $container->removeDefinition('daif_chrome_pdf.http_kernel.stream_builder');
         }
 
@@ -142,23 +157,33 @@ class DaifChromePdfExtension extends Extension
 
         // Configurators
         $configValueMapping = [];
+        $typeReverseMapping = $this->builderStack->getTypeReverseMapping();
         foreach ($defaultConfiguration['default_options'] as $type => $buildersOptions) {
             foreach ($buildersOptions as $builderName => $builderOptions) {
-                $class = $this->builderStack->getTypeReverseMapping()[$type][$builderName];
-                $configValueMapping[$class] = $defaultConfiguration['default_options'][$type][$builderName];
+                $class = $typeReverseMapping[$type][$builderName] ?? null;
+                if (null === $class) {
+                    continue;
+                }
+                $configValueMapping[$class] = $builderOptions;
             }
+        }
+        // Builders without any configuration node still need an entry for the configurator.
+        $configMapping = $this->builderStack->getConfigMapping();
+        foreach (array_keys($this->builderStack->getBuilders()) as $class) {
+            $configValueMapping[$class] ??= [];
+            $configMapping[$class] ??= [];
         }
 
         $container->getDefinition('daif_chrome_pdf.builder_configurator')
-            ->replaceArgument(0, $this->builderStack->getConfigMapping())
+            ->replaceArgument(0, $configMapping)
             ->replaceArgument(1, $configValueMapping)
         ;
     }
 
     /**
-     * @param array<string, mixed> $config
+     * @param DaifChromePdfConfiguration $config
      *
-     * @return array<string, mixed>
+     * @return DaifChromePdfConfiguration
      */
     private function processDefaultConfiguration(array $config): array
     {

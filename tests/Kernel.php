@@ -20,12 +20,12 @@ final class Kernel extends BaseKernel implements CompilerPassInterface
 
     public function getCacheDir(): string
     {
-        return __DIR__.'/../var/cache';
+        return sys_get_temp_dir().'/ChromePdfBundle/Kernel/cache/'.$this->environment;
     }
 
     public function getLogDir(): string
     {
-        return __DIR__.'/../var/log';
+        return sys_get_temp_dir().'/ChromePdfBundle/Kernel/log';
     }
 
     private function configureContainer(ContainerConfigurator $container, LoaderInterface $loader, ContainerBuilder $builder): void
@@ -33,10 +33,7 @@ final class Kernel extends BaseKernel implements CompilerPassInterface
         $builder->loadFromExtension('framework', [
             'test' => true,
         ]);
-        $builder->loadFromExtension('daif_chrome_pdf', [
-            'http_client' => 'http_client',
-            'version' => '50000.0.0',
-        ]);
+        $builder->loadFromExtension('daif_chrome_pdf', []);
         $builder->addCompilerPass($this);
     }
 

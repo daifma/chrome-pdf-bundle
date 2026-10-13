@@ -17,6 +17,14 @@
          failOnWarning="true">
     <php>
         <env name="KERNEL_CLASS" value="Daif\ChromePdfBundle\Tests\Kernel"/>
+        <!--
+            Functional tests driving a real Chrome/Chromium/Edge (group "browser"):
+              auto = run when a browser is found (CHROME_PATH or auto-detection), skip otherwise
+              1    = a browser is required, fail when none is found (used by CI)
+              0    = always skip (or exclude the "browser" group)
+            An already defined environment variable takes precedence.
+        -->
+        <env name="CHROME_PDF_BROWSER_TESTS" value="auto"/>
         <ini name="SYMFONY_DEPRECATIONS_HELPER" value="max[direct]=0"/>
     </php>
 

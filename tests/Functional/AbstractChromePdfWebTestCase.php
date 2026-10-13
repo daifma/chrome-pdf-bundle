@@ -10,7 +10,6 @@ use Symfony\Component\HttpKernel\KernelInterface;
  * Inspired by Symfony's AbstractWebTestCase.
  *
  * @see https://github.com/symfony/symfony/blob/7.4/src/Symfony/Bundle/FrameworkBundle/Tests/Functional/AbstractWebTestCase.php
- * /
  */
 abstract class AbstractChromePdfWebTestCase extends WebTestCase
 {
@@ -25,7 +24,7 @@ abstract class AbstractChromePdfWebTestCase extends WebTestCase
     }
 
     /**
-     * @param array{test_case?: string} $options
+     * @param array{test_case?: string, debug?: bool} $options
      */
     protected static function createKernel(array $options = []): KernelInterface
     {
@@ -37,7 +36,7 @@ abstract class AbstractChromePdfWebTestCase extends WebTestCase
             throw new \InvalidArgumentException(\sprintf('The test case "%s" does not exist.', $testCase));
         }
 
-        return new TestKernel(__DIR__.'/'.$testCase, self::getTmpDir());
+        return new TestKernel(__DIR__.'/'.$testCase, self::getTmpDir(), $options['debug'] ?? false);
     }
 
     protected static function getKernelClass(): string
@@ -54,7 +53,7 @@ abstract class AbstractChromePdfWebTestCase extends WebTestCase
         (new Filesystem())->remove($dir);
     }
 
-    private static function getTmpDir(): string
+    protected static function getTmpDir(): string
     {
         return sys_get_temp_dir().'/ChromePdfBundle/'.substr(strrchr(static::class, '\\') ?: static::class, 1);
     }

@@ -170,3 +170,22 @@ class YourController
     }
 }
 ```
+
+## Fonts in header and footer
+
+Header and footer templates don't inherit the fonts of the main document. Call `chrome_pdf_font_face()` (or
+`chrome_pdf_font_style_tag()`) inside the header or footer template itself. The font file is then inlined as a
+`data:` URI, because Chrome cannot load files there. Prefer small font subsets (WOFF2) to keep the PDF light.
+
+## System fonts
+
+Fonts that are not embedded with the functions above come from the operating system of the server that runs Chrome:
+
+- **Linux** servers often have very few fonts installed. Text then falls back to another font, or shows up as empty
+  squares (tofu), especially for emoji and CJK. Install `fonts-liberation`, `fonts-dejavu-core`, `fonts-noto-core`,
+  `fonts-noto-color-emoji` (Debian/Ubuntu) or their RHEL equivalents, then run `fc-cache -f`.
+- **Windows** has the common fonts, but fonts installed *for the current user only* are invisible to IIS / FPM service
+  accounts. Install them *for all users*.
+- For identical output on every machine, embed the fonts with `chrome_pdf_font_face()`.
+
+See [Chrome installation](chrome-installation.md#fonts-on-linux) for the commands.

@@ -2,84 +2,87 @@
 
 Thank you for your interest in contributing to ChromePdfBundle!
 
-Your support helps make this project better for everyone.
-
 ## How to Contribute
 
 ### Report Issues
 
-Found a bug or have a feature request? [Open an issue](https://github.com/daifma/chrome-pdf-bundle/issues) to let us
-know.
+Found a bug or have a feature request? [Open an issue](https://github.com/daifma/chrome-pdf-bundle/issues). For bugs,
+please include your OS, PHP version, browser and version (`chrome --version` / Edge version), and the bundle
+configuration.
+
+Security issues: please report them privately (see [docs/security.md](docs/security.md#reporting-a-vulnerability)).
 
 ### Submit Pull Requests
 
 * Fork the repository.
 * Create a new branch for your changes.
-* Ensure your code follows the existing style and includes tests if applicable.
+* Follow the existing code style, and add tests.
+* Update the documentation (`docs/`, `README.md` parity table) and add an entry under `Unreleased` in
+  [CHANGELOG.md](CHANGELOG.md). Behaviour changes also go in [UPGRADE.md](UPGRADE.md).
 * Submit a pull request with a clear description of your changes.
 
 ## Installation
 
-To set up the project locally for development:
+### Requirements
 
-### Clone the Repository
+- PHP 8.1+ with `ext-sockets` (and `ext-mbstring` for the dev tools)
+- Composer
+- Chrome, Chromium or Edge for the functional browser tests (set `CHROME_PATH` if it is not auto-detected)
 
-```shell
-$ git clone https://github.com/daifma/chrome-pdf-bundle.git
-$ cd chrome-pdf-bundle
-```
-
-### Install Dependencies
+### Clone and install
 
 ```shell
-$ composer install
+git clone https://github.com/daifma/chrome-pdf-bundle.git
+cd chrome-pdf-bundle
+composer install
 ```
 
 ## Testing
 
-Ensure your changes work as expected by running the test suite:
-
-### Run Tests
-
 ```shell
-$ ./vendor/bin/phpunit
+./vendor/bin/phpunit
+./vendor/bin/phpunit --coverage-text   # optional
 ```
 
-### Run Tests with Coverage (optional)
+Tests that start a real browser are in the `browser` group. `CHROME_PDF_BROWSER_TESTS` controls them: `auto`
+(default, run when a browser is found), `1` (a browser is required, used by the CI) or `0` (skip). You can also use
+`--exclude-group browser`. Set `CHROME_PATH` if the browser is not auto-detected, and `CHROME_NO_SANDBOX=0|1` to
+override the sandbox setting (disabled by default on Linux for these tests). See [docs/testing.md](docs/testing.md).
 
-```shell
-$ ./vendor/bin/phpunit --coverage-text
-```
+The CI runs the suite on Linux **and Windows**. Avoid anything platform-specific:
+
+- no `posix_*` / `pcntl_*`, no shell commands, no hard-coded `/tmp` or `/` separators;
+- use `Symfony\Component\Filesystem\Path` for path manipulation;
+- build `file://` URLs with the Browser layer helper, never by concatenation.
 
 ## Quality Assurance
 
-Maintain high code quality by following these steps before submitting a pull request:
-
-### Code Linting
-
-Check your code for style violations:
+### Code style
 
 ```shell
-$ ./vendor/bin/php-cs-fixer fix --diff
+./vendor/bin/php-cs-fixer fix --diff
 ```
 
-### Static Analysis
+### Static analysis
 
 ```shell
-$ php -dmemory_limit=-1 ./vendor/bin/phpstan analyse
+php -dmemory_limit=-1 ./vendor/bin/phpstan analyse
 ```
 
 ### Dependencies
 
 ```shell
-$ ./vendor/bin/composer-dependency-analyser
+./vendor/bin/composer-dependency-analyser
 ```
 
-Detect potential issues in composer.json dependencies.
+### Configuration reference
 
-### Fix Issues
+When you add a builder option with `#[WithConfigurationNode]`, check the generated configuration and update
+[docs/configuration.md](docs/configuration.md):
 
-Address any warnings or errors reported by the tools above.
+```shell
+php bin/config.dump-reference
+```
 
 ---
 

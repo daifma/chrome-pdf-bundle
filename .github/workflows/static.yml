@@ -4,14 +4,17 @@ on:
   push:
     branches: ['main']
   pull_request:
-    branches: ['main']
 
 permissions:
   contents: 'read'
 
+concurrency:
+  group: '${{ github.workflow }}-${{ github.ref }}'
+  cancel-in-progress: true
+
 jobs:
-  php-cs-fixer:
-    name: 'PHP CS Fixer'
+  static:
+    name: 'Static analysis'
     runs-on: 'ubuntu-latest'
     steps:
       - uses: 'actions/checkout@v4'
@@ -20,32 +23,25 @@ jobs:
         uses: 'shivammathur/setup-php@v2'
         with:
           php-version: '8.3'
+          extensions: 'sockets, mbstring, zip'
           coverage: 'none'
 
+      - name: 'Validate composer.json'
+        run: 'composer validate --strict --no-check-lock'
+
       - name: 'Install dependencies'
-        run: |
-          composer install --prefer-dist --no-interaction --no-progress
-
-      - name: 'Run PHP CS Fixer'
-        run: |
-          vendor/bin/php-cs-fixer fix --dry-run --diff
-
-  phpstan:
-    name: 'PHPStan'
-    runs-on: 'ubuntu-latest'
-    steps:
-      - uses: 'actions/checkout@v4'
-
-      - name: 'Setup PHP'
-        uses: 'shivammathur/setup-php@v2'
+        uses: 'ramsey/composer-install@v3'
         with:
-          php-version: '8.3'
-          coverage: 'none'
+          composer-options: '--prefer-dist'
 
-      - name: 'Install dependencies'
-        run: |
-          composer install --prefer-dist --no-interaction --no-progress
+      - name: 'PHPStan'
+        if: '!cancelled()'
+        run: 'vendor/bin/phpstan analyse --no-progress --memory-limit=1G'
 
-      - name: 'Run PHPStan'
-        run: |
-          vendor/bin/phpstan analyse
+      - name: 'PHP CS Fixer'
+        if: '!cancelled()'
+        run: 'vendor/bin/php-cs-fixer fix --dry-run --diff'
+
+      - name: 'Composer dependency analyser'
+        if: '!cancelled()'
+        run: 'vendor/bin/composer-dependency-analyser'
