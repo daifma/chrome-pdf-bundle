@@ -5,6 +5,7 @@ namespace Daif\ChromePdfBundle\Builder\Behaviors\Chromium;
 use Daif\ChromePdfBundle\Builder\Attributes\WithConfigurationNode;
 use Daif\ChromePdfBundle\Builder\BodyBag;
 use Daif\ChromePdfBundle\Enumeration\UserAgent;
+use Daif\ChromePdfBundle\Exception\InvalidBuilderConfiguration;
 use Daif\ChromePdfBundle\NodeBuilder\ArrayNodeBuilder;
 use Daif\ChromePdfBundle\NodeBuilder\ScalarNodeBuilder;
 
@@ -25,6 +26,10 @@ trait CustomHttpHeadersTrait
     #[WithConfigurationNode(new ScalarNodeBuilder('user_agent', restrictTo: 'string'))]
     public function userAgent(string $userAgent): static
     {
+        if ('' === trim($userAgent)) {
+            throw new InvalidBuilderConfiguration('The user agent cannot be empty.');
+        }
+
         $this->getBodyBag()->set('userAgent', $userAgent);
 
         return $this;
@@ -46,7 +51,7 @@ trait CustomHttpHeadersTrait
             return $this;
         }
 
-        $this->getBodyBag()->set('extraHttpHeaders', $headers);
+        $this->getBodyBag()->set('extraHttpHeaders', self::normalizeHttpHeaders($headers));
 
         return $this;
     }
@@ -66,8 +71,27 @@ trait CustomHttpHeadersTrait
 
         $current = $this->getBodyBag()->get('extraHttpHeaders', []);
 
-        $this->getBodyBag()->set('extraHttpHeaders', array_merge($current, $headers));
+        $this->getBodyBag()->set('extraHttpHeaders', array_merge($current, self::normalizeHttpHeaders($headers)));
 
         return $this;
+    }
+
+    /**
+     * @param array<mixed> $headers
+     *
+     * @return array<string, string>
+     */
+    private static function normalizeHttpHeaders(array $headers): array
+    {
+        $normalized = [];
+        foreach ($headers as $name => $value) {
+            if (!\is_string($name) || '' === $name || (!\is_scalar($value) && !$value instanceof \Stringable)) {
+                throw new InvalidBuilderConfiguration('Invalid extra HTTP headers, expected an array like ["MyHeader" => "MyValue"].');
+            }
+
+            $normalized[$name] = \is_bool($value) ? ($value ? 'true' : 'false') : (string) $value;
+        }
+
+        return $normalized;
     }
 }

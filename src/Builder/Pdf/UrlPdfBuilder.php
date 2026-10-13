@@ -4,6 +4,7 @@ namespace Daif\ChromePdfBundle\Builder\Pdf;
 
 use Daif\ChromePdfBundle\Browser\BrowserInterface;
 use Daif\ChromePdfBundle\Builder\AbstractBuilder;
+use Daif\ChromePdfBundle\Builder\AssetPathResolverInterface;
 use Daif\ChromePdfBundle\Builder\Attributes\WithBuilderConfiguration;
 use Daif\ChromePdfBundle\Builder\Behaviors\ChromiumPdfTrait;
 use Daif\ChromePdfBundle\Builder\Behaviors\Dependencies\RequestContextAwareTrait;
@@ -16,7 +17,7 @@ use Symfony\Contracts\Service\Attribute\SubscribedService;
  * Convert a URL into PDF using Chrome.
  */
 #[WithBuilderConfiguration(type: 'pdf', name: 'url')]
-final class UrlPdfBuilder extends AbstractBuilder implements BuilderAssetInterface
+final class UrlPdfBuilder extends AbstractBuilder implements BuilderAssetInterface, AssetPathResolverInterface
 {
     use ChromiumPdfTrait;
     use RequestContextAwareTrait;
