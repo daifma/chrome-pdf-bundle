@@ -102,8 +102,18 @@ final class PageSession
      */
     public function printToPdf(array $pdfOptions, array $pageOptions = []): string
     {
-        $params = PrintOptions::toCdp($pdfOptions);
+        $pdf = $this->printWithParams(PrintOptions::toCdp($pdfOptions), $pdfOptions, $pageOptions);
 
+        return false === ($pdfOptions['generateTaggedPdf'] ?? null) ? StructureTreeStripper::strip($pdf) : $pdf;
+    }
+
+    /**
+     * @param array<string, mixed> $params
+     * @param array<string, mixed> $pdfOptions
+     * @param array<string, mixed> $pageOptions
+     */
+    private function printWithParams(array $params, array $pdfOptions, array $pageOptions): string
+    {
         if (empty($pdfOptions['singlePage'])) {
             return $this->doPrint($params);
         }

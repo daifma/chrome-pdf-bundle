@@ -143,6 +143,20 @@ final class ChromeBrowserTest extends TestCase
         self::assertTrue(str_contains($pdf, '/StructTreeRoot'), 'the PDF is tagged');
     }
 
+    public function testUntaggedPdfDropsTheStructureTree(): void
+    {
+        $html = '<table>'.str_repeat('<tr><td>cell</td><td>cell</td><td>cell</td></tr>', 200).'</table>';
+
+        $tagged = self::browser()->htmlToPdf($html, ['generateTaggedPdf' => true]);
+        $untagged = self::browser()->htmlToPdf($html, ['generateTaggedPdf' => false]);
+
+        self::assertStringNotContainsString('/StructTreeRoot', $untagged);
+        self::assertStringNotContainsString('/StructElem', $untagged);
+        self::assertSame(PrintOptions::countPdfPages($tagged), PrintOptions::countPdfPages($untagged));
+        self::assertLessThan(\strlen($tagged), \strlen($untagged));
+        self::assertSame(self::pdfText($tagged), self::pdfText($untagged));
+    }
+
     public function testPaperSizeAndLandscape(): void
     {
         $portrait = self::browser()->htmlToPdf('<p>x</p>', ['paperWidth' => 8.27, 'paperHeight' => 11.7]);

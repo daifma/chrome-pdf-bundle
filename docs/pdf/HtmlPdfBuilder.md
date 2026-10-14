@@ -107,7 +107,7 @@ See [Header / Footer](header-footer.md). They behave differently from the main c
 | `preferCssPageSize(bool $bool = true)` | Use the CSS `@page { size: ... }` |
 | `singlePage(bool $bool = true)` | All content on one page whose height fits the document (ignores `nativePageRanges`). With `landscape()`, the page is printed portrait with width = max(paper width, paper height) |
 | `generateDocumentOutline(bool $bool = true)` | PDF bookmarks generated from headings |
-| `generateTaggedPdf(bool $bool = true)` | Tagged (accessible) PDF. Recent Chromium versions tag PDFs by default, so `generateTaggedPdf(false)` may have no effect |
+| `generateTaggedPdf(bool $bool = true)` | Tagged (accessible) PDF. Recent Chromium versions tag every PDF, so `generateTaggedPdf(false)` removes the structure tree after printing: on table-heavy documents it can be most of the file size |
 
 `Unit` supports `Inches` (`in`), `Points` (`pt`), `Pixels` (`px`), `Millimeters` (`mm`), `Centimeters` (`cm`) and
 `Picas` (`pc`).
